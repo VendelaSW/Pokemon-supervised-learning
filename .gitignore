@@ -220,3 +220,4 @@ __marimo__/
 
 dataset/
 images/
+.DS_Store
