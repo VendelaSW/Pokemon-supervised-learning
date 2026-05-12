@@ -36,15 +36,10 @@ Exkluderade träningskolumner inkluderar bland annat `name`, `type_2`, `genus`, 
 Kategorier som används i träningen kodas med dummy-kolumner:
 
 ```text
-ability_1
-ability_2
-ability_3
 color
 shape
 habitat
 growth_rate
-egg_group_1
-egg_group_2
 ```
 
 Målvariabeln är `type_1_encoded`, skapad från `type_1`.
@@ -71,7 +66,7 @@ xgboost_feature_importance.csv/png
 xgboost_permutation_importance.csv/png
 ```
 
-Feature importance och permutation importance sparas både per enskild dummy-feature och grupperat tillbaka till ursprungliga kategorikolumner som `ability_1`, `color`, `shape`, `habitat` och `egg_group_1`.
+Feature importance och permutation importance sparas både per enskild dummy-feature och grupperat tillbaka till ursprungliga kategorikolumner som `color`, `shape` och `habitat`.
 
 ## Körning
 

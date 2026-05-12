@@ -41,15 +41,10 @@ import seaborn as sns
 
 
 DUMMY_SOURCE_COLUMNS = [
-    "ability_1",
-    "ability_2",
-    "ability_3",
     "color",
     "shape",
     "habitat",
     "growth_rate",
-    "egg_group_1",
-    "egg_group_2",
 ]
 
 

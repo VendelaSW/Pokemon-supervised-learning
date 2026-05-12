@@ -228,3 +228,4 @@ eda_outputs/
 
 # Genererade modellfiler
 model_outputs/
+log.txt
