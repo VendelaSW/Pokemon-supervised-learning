@@ -50,7 +50,7 @@ PCA körs efter train/test-split för att testdatan inte ska påverka skalning e
 
 Eftersom `type_1` har fler än två klasser används multinomial logistisk regression i stället för binär `Logit`.
 
-XGBoost tränas med `GridSearchCV` och flera hyperparametrar. Resultaten jämförs med accuracy, balanced accuracy, macro F1 och weighted F1.
+XGBoost tränas med `GridSearchCV`, flera hyperparametrar och balanced `sample_weight` så ovanliga typer väger mer vid träning. Resultaten jämförs med accuracy, balanced accuracy, macro F1 och weighted F1.
 
 ## Modelloutput
 
