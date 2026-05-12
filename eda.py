@@ -4,15 +4,13 @@ from __future__ import annotations
 Exploratory Data Analysis för Pokémon-datasetet.
 
 Modulen används före och efter datarensning för att visa hur datasetet
-förändras. Den sparar både textbaserade rapporter och figurer, men den
-analyserar inte den breda träningsmatrisen med dummy-kolumner eftersom
-den främst är skapad för modellträning.
+förändras. Den sparar främst PNG-figurer eftersom de är enklast att använda
+i presentationen av datan.
 """
 
 import os
 import re
 import unicodedata
-from io import StringIO
 from pathlib import Path
 
 import pandas as pd
@@ -57,30 +55,18 @@ SELECTED_CATEGORICAL_COLUMNS = [
     "generation",
 ]
 
-CROSSTAB_COLUMNS = [
-    "color",
-    "shape",
-    "habitat",
-    "growth_rate",
-    "egg_groups",
-]
-
-
 def print_dataframe_overview(df: pd.DataFrame, title: str) -> None:
-    """Skriver ut en tydlig översikt av en DataFrame i terminalen."""
+    """Skriver ut en kort översikt utan att fylla terminalen med hela tabeller."""
     print("\n" + "=" * 72)
     print(title)
     print("=" * 72)
     print(f"Rader: {df.shape[0]}")
     print(f"Kolumner: {df.shape[1]}")
-    print("\nKolumnnamn:")
-    print(df.columns.to_list())
-    print("\nFörsta fem raderna:")
-    print(df.head())
-    print("\nDataformat:")
-    info_buffer = StringIO()
-    df.info(buf=info_buffer)
-    print(info_buffer.getvalue())
+    print(f"Saknade värden: {int(df.isna().sum().sum())}")
+    print(f"Dubbletter: {int(df.duplicated().sum())}")
+    preview = df.columns.to_list()[:12]
+    suffix = " ..." if df.shape[1] > len(preview) else ""
+    print(f"Kolumnexempel: {preview}{suffix}")
 
 
 def run_eda(
@@ -88,7 +74,7 @@ def run_eda(
     dataset_name: str,
     output_dir: str | Path = "eda_outputs",
 ) -> dict:
-    """Kör EDA på en DataFrame och sparar rapport samt figurer.
+    """Kör EDA på en DataFrame och sparar förklarande PNG-figurer.
 
     Funktionen är avsedd för både rådata och rensad referensdata.
     Träningsmatrisen med one-hot-kolumner analyseras inte här eftersom
@@ -102,16 +88,11 @@ def run_eda(
     plots_dir.mkdir(parents=True, exist_ok=True)
 
     summary = _build_summary(df, dataset_name)
-    report_path = output_path / f"{slug}_eda_report.md"
-    report_path.write_text(_format_report(summary), encoding="utf-8")
-
     plot_paths = _save_plots(df, dataset_name, slug, plots_dir)
-    summary["report_path"] = report_path
     summary["plot_paths"] = plot_paths
 
     print(f"\nEDA klar för {dataset_name}.")
-    print(f"Rapport: {report_path}")
-    print(f"Figurer: {plots_dir}")
+    print(f"PNG-figurer: {plots_dir}")
 
     return summary
 
@@ -121,171 +102,47 @@ def compare_eda_results(
     cleaned_summary: dict,
     output_dir: str | Path = "eda_outputs",
 ) -> Path:
-    """Sparar en jämförelserapport mellan EDA före och efter rensning."""
+    """Sparar en PNG-jämförelse mellan EDA före och efter rensning."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    report_path = output_path / "raw_vs_cleaned_comparison.md"
+    path = output_path / "raw_vs_cleaned_comparison.png"
+    comparison = pd.DataFrame(
+        {
+            "dataset": ["Rådata", "Rensad data"],
+            "kolumner": [raw_summary["shape"][1], cleaned_summary["shape"][1]],
+            "saknade_värden": [
+                raw_summary["missing_total"],
+                cleaned_summary["missing_total"],
+            ],
+            "dubbletter": [
+                raw_summary["duplicate_rows"],
+                cleaned_summary["duplicate_rows"],
+            ],
+        }
+    ).set_index("dataset")
 
-    raw_columns = set(raw_summary["columns"])
-    cleaned_columns = set(cleaned_summary["columns"])
-    added_columns = sorted(cleaned_columns - raw_columns)
-    removed_columns = sorted(raw_columns - cleaned_columns)
-    shared_columns = sorted(raw_columns & cleaned_columns)
-    dtype_changes = [
-        (column, raw_summary["dtypes"][column], cleaned_summary["dtypes"][column])
-        for column in shared_columns
-        if raw_summary["dtypes"][column] != cleaned_summary["dtypes"][column]
-    ]
-
-    lines = [
-        "# Jämförelse: rådata vs rensad data",
-        "",
-        "## Storlek",
-        "",
-        f"- Rådata: {raw_summary['shape'][0]} rader, {raw_summary['shape'][1]} kolumner",
-        f"- Rensad data: {cleaned_summary['shape'][0]} rader, {cleaned_summary['shape'][1]} kolumner",
-        "",
-        "## Saknade värden",
-        "",
-        f"- Rådata: {raw_summary['missing_total']} saknade värden totalt",
-        f"- Rensad data: {cleaned_summary['missing_total']} saknade värden totalt",
-        "",
-        "## Dubbletter",
-        "",
-        f"- Rådata: {raw_summary['duplicate_rows']} dubbla rader",
-        f"- Rensad data: {cleaned_summary['duplicate_rows']} dubbla rader",
-        "",
-        "## Kolumnförändringar",
-        "",
-        _format_list("Tillagda kolumner", added_columns),
-        _format_list("Borttagna kolumner", removed_columns),
-        "",
-        "## Datatyper som ändrats",
-        "",
-        _format_dtype_changes(dtype_changes),
-        "",
-    ]
-
-    report_path.write_text("\n".join(lines), encoding="utf-8")
-    print(f"\nJämförelserapport sparad: {report_path}")
-    return report_path
+    fig, axes = plt.subplots(1, 3, figsize=(14, 4))
+    for ax, column in zip(axes, comparison.columns):
+        comparison[column].plot(kind="bar", ax=ax, color=["#4C78A8", "#54A24B"])
+        ax.set_title(column.replace("_", " ").title())
+        ax.set_xlabel("")
+        ax.tick_params(axis="x", rotation=0)
+    fig.suptitle("Jämförelse före och efter rensning")
+    fig.tight_layout()
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+    print(f"\nEDA-jämförelse sparad som PNG: {path}")
+    return path
 
 
 def _build_summary(df: pd.DataFrame, dataset_name: str) -> dict:
     missing_count = df.isna().sum()
-    missing_percent = (missing_count / len(df) * 100).round(2) if len(df) else missing_count
-    missing_table = (
-        pd.DataFrame(
-            {
-                "missing_count": missing_count,
-                "missing_percent": missing_percent,
-            }
-        )
-        .query("missing_count > 0")
-        .sort_values(["missing_count", "missing_percent"], ascending=False)
-    )
-
-    numeric_columns = df.select_dtypes(include="number").columns.to_list()
-    categorical_columns = df.select_dtypes(
-        include=["object", "string", "category", "bool"]
-    ).columns.to_list()
-
-    categorical_cardinality = (
-        df[categorical_columns].nunique(dropna=False).sort_values(ascending=False)
-        if categorical_columns
-        else pd.Series(dtype="int64")
-    )
-
-    top_values = {
-        column: df[column].value_counts(dropna=False).head(10)
-        for column in categorical_columns
-    }
-
-    outlier_summary = _iqr_outlier_summary(df, numeric_columns)
-    crosstabs = _build_crosstabs(df)
-
     return {
         "dataset_name": dataset_name,
         "shape": df.shape,
-        "columns": df.columns.to_list(),
-        "dtypes": {column: str(dtype) for column, dtype in df.dtypes.items()},
-        "head": df.head(),
-        "info": _info_to_string(df),
-        "missing_table": missing_table,
         "missing_total": int(missing_count.sum()),
         "duplicate_rows": int(df.duplicated().sum()),
-        "numeric_columns": numeric_columns,
-        "categorical_columns": categorical_columns,
-        "numeric_describe": df[numeric_columns].describe().T if numeric_columns else pd.DataFrame(),
-        "categorical_cardinality": categorical_cardinality,
-        "top_values": top_values,
-        "target_distribution": (
-            df["type_1"].value_counts(dropna=False) if "type_1" in df.columns else pd.Series(dtype="int64")
-        ),
-        "correlation": df[numeric_columns].corr() if len(numeric_columns) >= 2 else pd.DataFrame(),
-        "outlier_summary": outlier_summary,
-        "crosstabs": crosstabs,
     }
-
-
-def _format_report(summary: dict) -> str:
-    lines = [
-        f"# EDA: {summary['dataset_name']}",
-        "",
-        "## Grundstruktur",
-        "",
-        f"- Rader: {summary['shape'][0]}",
-        f"- Kolumner: {summary['shape'][1]}",
-        f"- Dubbletter: {summary['duplicate_rows']}",
-        f"- Saknade värden totalt: {summary['missing_total']}",
-        "",
-        "## Kolumner och datatyper",
-        "",
-        _format_code_block(summary["info"]),
-        "",
-        "## Första fem raderna",
-        "",
-        _format_dataframe(summary["head"]),
-        "",
-        "## Saknade värden",
-        "",
-        _format_dataframe(summary["missing_table"], empty_text="Inga saknade värden."),
-        "",
-        "## Numeriska summeringar",
-        "",
-        _format_dataframe(summary["numeric_describe"], empty_text="Inga numeriska kolumner."),
-        "",
-        "## Kategorisk kardinalitet",
-        "",
-        _format_series(summary["categorical_cardinality"], empty_text="Inga kategoriska kolumner."),
-        "",
-        "## Fördelning av målvariabeln type_1",
-        "",
-        _format_series(summary["target_distribution"], empty_text="Kolumnen type_1 saknas."),
-        "",
-        "## Korrelationer",
-        "",
-        _format_dataframe(summary["correlation"], empty_text="För få numeriska kolumner för korrelation."),
-        "",
-        "## IQR-baserade avvikelser",
-        "",
-        _format_dataframe(summary["outlier_summary"], empty_text="Inga numeriska kolumner att analysera."),
-        "",
-        "## Toppvärden per kategorisk kolumn",
-        "",
-    ]
-
-    for column, values in summary["top_values"].items():
-        lines.extend([f"### {column}", "", _format_series(values), ""])
-
-    lines.extend(["## Kontingenstabeller mot type_1", ""])
-    if summary["crosstabs"]:
-        for column, table in summary["crosstabs"].items():
-            lines.extend([f"### type_1 x {column}", "", _format_dataframe(table), ""])
-    else:
-        lines.append("Inga kontingenstabeller skapades.")
-
-    return "\n".join(lines)
 
 
 def _save_plots(
@@ -450,80 +307,6 @@ def _plot_scatter_matrix(df: pd.DataFrame, dataset_name: str, slug: str, plots_d
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return path
-
-
-def _iqr_outlier_summary(df: pd.DataFrame, numeric_columns: list[str]) -> pd.DataFrame:
-    rows = []
-    for column in numeric_columns:
-        values = df[column].dropna()
-        if values.empty:
-            continue
-
-        q1 = values.quantile(0.25)
-        q3 = values.quantile(0.75)
-        iqr = q3 - q1
-        lower = q1 - 1.5 * iqr
-        upper = q3 + 1.5 * iqr
-        outliers = ((values < lower) | (values > upper)).sum()
-        rows.append(
-            {
-                "column": column,
-                "lower_bound": round(lower, 3),
-                "upper_bound": round(upper, 3),
-                "outlier_count": int(outliers),
-                "outlier_percent": round(outliers / len(values) * 100, 2),
-            }
-        )
-
-    if not rows:
-        return pd.DataFrame()
-    return pd.DataFrame(rows).sort_values("outlier_count", ascending=False)
-
-
-def _build_crosstabs(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
-    if "type_1" not in df.columns:
-        return {}
-
-    crosstabs = {}
-    for column in CROSSTAB_COLUMNS:
-        if column in df.columns:
-            crosstabs[column] = pd.crosstab(df["type_1"], df[column], dropna=False)
-    return crosstabs
-
-
-def _info_to_string(df: pd.DataFrame) -> str:
-    buffer = StringIO()
-    df.info(buf=buffer)
-    return buffer.getvalue()
-
-
-def _format_dataframe(df: pd.DataFrame, empty_text: str = "Inga data.") -> str:
-    if df.empty:
-        return empty_text
-    return _format_code_block(df.to_string())
-
-
-def _format_series(series: pd.Series, empty_text: str = "Inga data.") -> str:
-    if series.empty:
-        return empty_text
-    return _format_code_block(series.to_string())
-
-
-def _format_code_block(text: str) -> str:
-    return f"```text\n{text}\n```"
-
-
-def _format_list(title: str, values: list[str]) -> str:
-    if not values:
-        return f"- {title}: inga"
-    return f"- {title}: {', '.join(values)}"
-
-
-def _format_dtype_changes(changes: list[tuple[str, str, str]]) -> str:
-    if not changes:
-        return "Inga datatyper ändrades för gemensamma kolumner."
-    rows = [f"- {column}: {before} -> {after}" for column, before, after in changes]
-    return "\n".join(rows)
 
 
 def _existing_columns(df: pd.DataFrame, columns: list[str]) -> list[str]:

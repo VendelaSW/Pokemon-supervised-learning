@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.inspection import permutation_importance
@@ -47,81 +47,175 @@ DUMMY_SOURCE_COLUMNS = [
     "growth_rate",
 ]
 
+STRIPPED_FEATURE_PREFIXES = tuple(
+    f"{column}_"
+    for column in DUMMY_SOURCE_COLUMNS
+)
+
 
 def train_models(
     training_data: dict,
     output_dir: str | Path = MODEL_OUTPUT_DIR,
+    run_label: str = "pokemon_type_training",
 ) -> dict:
-    """Tränar logreg och XGBoost samt sparar gemensam utvärdering."""
+    """Tränar modeller, sparar .pkl och skapar de viktigaste PNG-figurerna."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
-    logreg_results = train_multinomial_regression(training_data, output_path)
-    xgboost_results = train_xgboost_grid_search(training_data, output_path)
-
+    print(f"\n-- Körning: {run_label} ----------------------------------------")
+    logreg_results = train_multinomial_regression(training_data, output_path, run_label)
+    xgboost_results = train_xgboost_grid_search(training_data, output_path, run_label)
+    xgboost_stripped_results = train_xgboost_stripped_features(
+        training_data,
+        output_path,
+        run_label,
+    )
     comparison = pd.DataFrame(
         [
             logreg_results["metrics"],
             xgboost_results["metrics"],
+            xgboost_stripped_results["metrics"],
         ]
     )
-    comparison.to_csv(output_path / "model_comparison.csv", index=False)
+    _save_model_comparison_plot(comparison, output_path, run_label)
 
     print("\n-- Modelljämförelse --------------------------------------------")
-    print(comparison.to_string(index=False))
-    print(f"\nModellresultat sparade i: {output_path}")
+    print(f"Körning: {run_label}")
+    print(comparison.round(3).to_string(index=False))
+    print(f"\nViktiga modellfiler och PNG-figurer sparade i: {output_path}")
 
     return {
         "logreg": logreg_results,
-        "xgboost": xgboost_results,
-        "xgboost_best_params": xgboost_results["best_params"],
+        "xgboost_grid_search": xgboost_results,
+        "xgboost_stripped_features": xgboost_stripped_results,
         "model_comparison": comparison,
-        "predictions": {
-            "logreg": logreg_results["predictions"],
-            "xgboost": xgboost_results["predictions"],
-        },
     }
 
 
 def train_multinomial_regression(
     training_data: dict,
-    output_dir: str | Path = MODEL_OUTPUT_DIR,
+    output_dir: Path,
+    run_label: str,
 ) -> dict:
     """Tränar multinomial logistisk regression på PCA-transformerad data."""
-    print("\n-- Multinomial logistisk regression ----------------------------")
-
-    X_train = training_data["X_train_pca"]
-    X_test = training_data["X_test_pca"]
-    y_train = training_data["y_train"]
-    y_test = training_data["y_test"]
+    print("\n-- Träning 1/3: Multinomial logistisk regression ---------------")
 
     model = LogisticRegression(
         solver="lbfgs",
         max_iter=LR_MAX_ITER,
         random_state=RANDOM_STATE,
     )
-    model.fit(X_train, y_train)
-    y_pred = model.predict(X_test)
+    model.fit(training_data["X_train_pca"], training_data["y_train"])
+    y_pred = model.predict(training_data["X_test_pca"])
 
-    return _evaluate_and_save_model(
+    results = _evaluate_model(
         model_name="logreg_pca",
-        model=model,
+        y_test=training_data["y_test"],
+        y_pred=y_pred,
+        target_labels=training_data.get("target_labels", {}),
+        output_dir=output_dir,
+        run_label=run_label,
+    )
+    joblib.dump(
+        {
+            "model": model,
+            "scaler": training_data["scaler"],
+            "pca": training_data["pca"],
+            "pca_columns": training_data["pca_columns"],
+            "target_labels": training_data.get("target_labels", {}),
+        },
+        output_dir / f"{run_label}_logreg_pca_model.pkl",
+    )
+    results["model"] = model
+    return results
+
+
+def train_xgboost_stripped_features(
+    training_data: dict,
+    output_dir: Path,
+    run_label: str,
+) -> dict:
+    """Tränar XGBoost med GridSearchCV på den smala feature-mängden."""
+    print("\n-- Träning 3/3: XGBoost stripped features med GridSearchCV -----")
+
+    X_train, X_test, stripped_columns = _strip_xgboost_features(training_data)
+    y_train = training_data["y_train"]
+    y_test = training_data["y_test"]
+
+    base_model = XGBClassifier(
+        objective="multi:softprob",
+        eval_metric="mlogloss",
+        num_class=len(np.unique(y_train)),
+        tree_method="hist",
+        n_jobs=1,
+        random_state=RANDOM_STATE,
+    )
+    grid_search = GridSearchCV(
+        estimator=base_model,
+        param_grid=XGB_PARAM_GRID,
+        scoring="balanced_accuracy",
+        cv=GRID_SEARCH_CV,
+        n_jobs=-1,
+        refit=True,
+        verbose=1,
+    )
+    grid_search.fit(X_train, y_train)
+
+    model = grid_search.best_estimator_
+    y_pred = model.predict(X_test)
+    results = _evaluate_model(
+        model_name="xgboost_stripped_features",
         y_test=y_test,
         y_pred=y_pred,
         target_labels=training_data.get("target_labels", {}),
-        output_dir=Path(output_dir),
+        output_dir=output_dir,
+        run_label=run_label,
     )
+    joblib.dump(
+        {
+            "model": model,
+            "feature_columns": stripped_columns,
+            "target_labels": training_data.get("target_labels", {}),
+            "best_params": grid_search.best_params_,
+            "best_cv_score": grid_search.best_score_,
+        },
+        output_dir / f"{run_label}_xgboost_stripped_features_model.pkl",
+    )
+
+    importance = _save_xgboost_feature_importance(
+        model,
+        stripped_columns,
+        output_dir,
+        run_label,
+        model_name="xgboost_stripped_features",
+    )
+    permutation = _save_permutation_importance(
+        model,
+        X_test,
+        y_test,
+        output_dir,
+        run_label,
+        model_name="xgboost_stripped_features",
+    )
+
+    print(f"Bästa stripped XGBoost-parametrar: {grid_search.best_params_}")
+    print(f"Bästa stripped CV balanced accuracy: {grid_search.best_score_:.3f}")
+
+    results["model"] = model
+    results["best_params"] = grid_search.best_params_
+    results["best_cv_score"] = grid_search.best_score_
+    results["feature_importance"] = importance
+    results["permutation_importance"] = permutation
+    return results
 
 
 def train_xgboost_grid_search(
     training_data: dict,
-    output_dir: str | Path = MODEL_OUTPUT_DIR,
+    output_dir: Path,
+    run_label: str,
 ) -> dict:
     """Tränar XGBoost på originalfeatures med GridSearchCV."""
-    print("\n-- XGBoost med GridSearchCV ------------------------------------")
-
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    print("\n-- Träning 2/3: XGBoost med GridSearchCV -----------------------")
 
     X_train = training_data["X_train_original"]
     X_test = training_data["X_test_original"]
@@ -147,84 +241,72 @@ def train_xgboost_grid_search(
     )
     grid_search.fit(X_train, y_train)
 
-    best_model = grid_search.best_estimator_
-    y_pred = best_model.predict(X_test)
-
-    best_params_path = output_path / "xgboost_best_params.json"
-    best_params_path.write_text(
-        json.dumps(grid_search.best_params_, indent=2, ensure_ascii=False),
-        encoding="utf-8",
+    model = grid_search.best_estimator_
+    y_pred = model.predict(X_test)
+    results = _evaluate_model(
+        model_name="xgboost_grid_search",
+        y_test=y_test,
+        y_pred=y_pred,
+        target_labels=training_data.get("target_labels", {}),
+        output_dir=output_dir,
+        run_label=run_label,
     )
-    cv_results = pd.DataFrame(grid_search.cv_results_)
-    cv_results.to_csv(output_path / "xgboost_grid_search_results.csv", index=False)
+    joblib.dump(
+        {
+            "model": model,
+            "feature_columns": training_data["feature_columns"],
+            "target_labels": training_data.get("target_labels", {}),
+            "best_params": grid_search.best_params_,
+            "best_cv_score": grid_search.best_score_,
+        },
+        output_dir / f"{run_label}_xgboost_grid_search_model.pkl",
+    )
+
+    importance = _save_xgboost_feature_importance(
+        model,
+        training_data["feature_columns"],
+        output_dir,
+        run_label,
+        model_name="xgboost_grid_search",
+    )
+    permutation = _save_permutation_importance(
+        model,
+        X_test,
+        y_test,
+        output_dir,
+        run_label,
+        model_name="xgboost_grid_search",
+    )
 
     print(f"Bästa XGBoost-parametrar: {grid_search.best_params_}")
     print(f"Bästa CV balanced accuracy: {grid_search.best_score_:.3f}")
 
-    results = _evaluate_and_save_model(
-        model_name="xgboost",
-        model=best_model,
-        y_test=y_test,
-        y_pred=y_pred,
-        target_labels=training_data.get("target_labels", {}),
-        output_dir=output_path,
-    )
-    results["grid_search"] = grid_search
+    results["model"] = model
     results["best_params"] = grid_search.best_params_
     results["best_cv_score"] = grid_search.best_score_
-
-    importance = _save_xgboost_feature_importance(
-        best_model,
-        training_data["feature_columns"],
-        output_path,
-    )
-    permutation = _save_permutation_importance(
-        best_model,
-        X_test,
-        y_test,
-        output_path,
-    )
     results["feature_importance"] = importance
     results["permutation_importance"] = permutation
-
     return results
 
 
-def _evaluate_and_save_model(
+def _evaluate_model(
     *,
     model_name: str,
-    model,
     y_test: pd.Series,
     y_pred: np.ndarray,
     target_labels: dict[int, str],
     output_dir: Path,
+    run_label: str,
 ) -> dict:
-    """Beräknar metrics och sparar rapporter för en modell."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-
+    """Beräknar kärn-metrics och sparar confusion matrix som PNG."""
     class_labels = np.array(sorted(y_test.unique()))
     class_names = _label_names(class_labels, target_labels)
-    report_text = classification_report(
-        y_test,
-        y_pred,
-        labels=class_labels,
-        target_names=class_names,
-        zero_division=0,
-    )
-    report_dict = classification_report(
-        y_test,
-        y_pred,
-        labels=class_labels,
-        target_names=class_names,
-        zero_division=0,
-        output_dict=True,
-    )
     confusion = pd.DataFrame(
         confusion_matrix(y_test, y_pred, labels=class_labels),
         index=class_names,
         columns=class_names,
     )
-    predictions = _make_prediction_table(y_test, y_pred, target_labels)
+    _save_confusion_matrix_plot(confusion, model_name, output_dir, run_label)
 
     metrics = {
         "model": model_name,
@@ -233,72 +315,86 @@ def _evaluate_and_save_model(
         "macro_f1": f1_score(y_test, y_pred, average="macro", zero_division=0),
         "weighted_f1": f1_score(y_test, y_pred, average="weighted", zero_division=0),
     }
-
-    report_path = output_dir / f"{model_name}_classification_report.txt"
-    report_path.write_text(report_text, encoding="utf-8")
-    pd.DataFrame(report_dict).T.to_csv(
-        output_dir / f"{model_name}_classification_report.csv"
+    print(
+        f"{model_name}: accuracy={metrics['accuracy']:.3f}, "
+        f"balanced_accuracy={metrics['balanced_accuracy']:.3f}, "
+        f"macro_f1={metrics['macro_f1']:.3f}"
     )
-    confusion.to_csv(output_dir / f"{model_name}_confusion_matrix.csv")
-    predictions.to_csv(output_dir / f"{model_name}_predictions.csv")
-    _save_confusion_matrix_plot(confusion, model_name, output_dir)
-
-    print(f"\n{model_name}")
-    print(f"Accuracy:            {metrics['accuracy']:.3f}")
-    print(f"Balanced accuracy:   {metrics['balanced_accuracy']:.3f}")
-    print(f"Macro F1:            {metrics['macro_f1']:.3f}")
-    print(f"Weighted F1:         {metrics['weighted_f1']:.3f}")
-    print("\nKlassificeringsrapport:")
-    print(report_text)
-
+    print(f"\nClassification report för {model_name} ({run_label}):")
+    print(
+        classification_report(
+            y_test,
+            y_pred,
+            labels=class_labels,
+            target_names=class_names,
+            zero_division=0,
+        )
+    )
     return {
-        "model": model,
-        "predictions": predictions,
-        "classification_report": report_text,
-        "classification_report_dict": report_dict,
-        "confusion_matrix": confusion,
         "metrics": metrics,
+        "confusion_matrix": confusion,
     }
 
 
+def _strip_xgboost_features(training_data: dict) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    """Väljer bara shape, habitat, color och growth_rate från training features."""
+    feature_columns = [
+        column
+        for column in training_data["feature_columns"]
+        if column.startswith(STRIPPED_FEATURE_PREFIXES)
+    ]
+    if not feature_columns:
+        raise ValueError("Hittade inga stripped features för XGBoost.")
+    return (
+        training_data["X_train_original"][feature_columns],
+        training_data["X_test_original"][feature_columns],
+        feature_columns,
+    )
+
+
 def _label_names(labels: np.ndarray, target_labels: dict[int, str]) -> list[str]:
-    """Hämtar läsbara klassnamn för rapporter om mappningen finns."""
+    """Hämtar läsbara klassnamn för figurer om mappningen finns."""
     return [
         target_labels.get(int(label), str(label))
         for label in labels
     ]
 
 
-def _make_prediction_table(
-    y_test: pd.Series,
-    y_pred: np.ndarray,
-    target_labels: dict[int, str],
-) -> pd.DataFrame:
-    """Skapar en resultat-tabell som kan kopplas tillbaka till df_reference."""
-    predictions = pd.DataFrame(index=y_test.index)
-    predictions["actual_encoded"] = y_test.astype(int)
-    predictions["predicted_encoded"] = y_pred.astype(int)
-    predictions["actual_type_1"] = predictions["actual_encoded"].map(target_labels)
-    predictions["predicted_type_1"] = predictions["predicted_encoded"].map(target_labels)
-    predictions["is_correct"] = (
-        predictions["actual_encoded"] == predictions["predicted_encoded"]
-    )
-    return predictions
+def _save_model_comparison_plot(
+    comparison: pd.DataFrame,
+    output_dir: Path,
+    run_label: str,
+) -> None:
+    """Sparar en kompakt PNG som jämför modellernas viktigaste metrics."""
+    plot_data = comparison.set_index("model")[
+        ["accuracy", "balanced_accuracy", "macro_f1", "weighted_f1"]
+    ]
+    fig, ax = plt.subplots(figsize=(10, 6))
+    plot_data.T.plot(kind="bar", ax=ax)
+    ax.set_title(f"Modelljämförelse: {run_label}")
+    ax.set_ylabel("Score")
+    ax.set_ylim(0, 1)
+    ax.tick_params(axis="x", rotation=30)
+    ax.legend(title="Modell")
+    fig.tight_layout()
+    fig.savefig(output_dir / f"{run_label}_model_comparison.png", dpi=150)
+    plt.close(fig)
 
 
 def _save_confusion_matrix_plot(
     confusion: pd.DataFrame,
     model_name: str,
     output_dir: Path,
+    run_label: str,
 ) -> None:
     """Sparar confusion matrix som värmekarta."""
     fig, ax = plt.subplots(figsize=(12, 10))
     sns.heatmap(confusion, annot=True, fmt="d", cmap="Blues", ax=ax)
-    ax.set_title(f"Confusion matrix: {model_name}")
+    ax.set_title(f"Confusion matrix: {model_name} ({run_label})")
     ax.set_xlabel("Predikterad klass")
     ax.set_ylabel("Faktisk klass")
     fig.tight_layout()
-    fig.savefig(output_dir / f"{model_name}_confusion_matrix.png", dpi=150)
+    fig.savefig(output_dir / f"{run_label}_{model_name}_confusion_matrix.png", dpi=150)
     plt.close(fig)
 
 
@@ -306,8 +402,10 @@ def _save_xgboost_feature_importance(
     model: XGBClassifier,
     feature_columns: list[str],
     output_dir: Path,
+    run_label: str,
+    model_name: str,
 ) -> dict:
-    """Sparar feature importance från XGBoost på originalfeatures."""
+    """Sparar XGBoost feature importance som PNG."""
     importance = pd.DataFrame(
         {
             "feature": feature_columns,
@@ -316,35 +414,24 @@ def _save_xgboost_feature_importance(
     )
     importance["feature_group"] = importance["feature"].map(_feature_group)
     importance = importance.sort_values("importance", ascending=False)
-
     grouped_importance = _group_importance(
         importance,
         value_column="importance",
         grouped_value_column="total_importance",
     )
-
-    importance.to_csv(output_dir / "xgboost_feature_importance.csv", index=False)
-    grouped_importance.to_csv(
-        output_dir / "xgboost_grouped_feature_importance.csv",
-        index=False,
-    )
     _save_importance_plot(
         importance,
         value_column="importance",
-        title="XGBoost feature importance",
-        output_path=output_dir / "xgboost_feature_importance.png",
+        title=f"Feature importance: {model_name} ({run_label})",
+        output_path=output_dir / f"{run_label}_{model_name}_feature_importance.png",
     )
     _save_importance_plot(
         grouped_importance,
         feature_column="feature_group",
         value_column="total_importance",
-        title="XGBoost grupperad feature importance",
-        output_path=output_dir / "xgboost_grouped_feature_importance.png",
+        title=f"Grupperad feature importance: {model_name} ({run_label})",
+        output_path=output_dir / f"{run_label}_{model_name}_grouped_feature_importance.png",
     )
-
-    print("\nTop 10 XGBoost feature importance:")
-    print(importance[["feature", "importance"]].head(10).to_string(index=False))
-
     return {
         "feature_importance": importance,
         "grouped_feature_importance": grouped_importance,
@@ -356,9 +443,11 @@ def _save_permutation_importance(
     X_test: pd.DataFrame,
     y_test: pd.Series,
     output_dir: Path,
+    run_label: str,
+    model_name: str,
 ) -> dict:
-    """Beräknar och sparar permutation importance på testdata."""
-    print("\nBeräknar permutation importance...")
+    """Beräknar permutation importance och sparar den som PNG."""
+    print("Beräknar permutation importance...")
     permutation = permutation_importance(
         model,
         X_test,
@@ -377,35 +466,24 @@ def _save_permutation_importance(
     )
     importance["feature_group"] = importance["feature"].map(_feature_group)
     importance = importance.sort_values("importance_mean", ascending=False)
-
     grouped_importance = _group_importance(
         importance,
         value_column="importance_mean",
         grouped_value_column="total_importance_mean",
     )
-
-    importance.to_csv(output_dir / "xgboost_permutation_importance.csv", index=False)
-    grouped_importance.to_csv(
-        output_dir / "xgboost_grouped_permutation_importance.csv",
-        index=False,
-    )
     _save_importance_plot(
         importance,
         value_column="importance_mean",
-        title="XGBoost permutation importance",
-        output_path=output_dir / "xgboost_permutation_importance.png",
+        title=f"Permutation importance: {model_name} ({run_label})",
+        output_path=output_dir / f"{run_label}_{model_name}_permutation_importance.png",
     )
     _save_importance_plot(
         grouped_importance,
         feature_column="feature_group",
         value_column="total_importance_mean",
-        title="XGBoost grupperad permutation importance",
-        output_path=output_dir / "xgboost_grouped_permutation_importance.png",
+        title=f"Grupperad permutation importance: {model_name} ({run_label})",
+        output_path=output_dir / f"{run_label}_{model_name}_grouped_permutation_importance.png",
     )
-
-    print("\nTop 10 permutation importance:")
-    print(importance[["feature", "importance_mean"]].head(10).to_string(index=False))
-
     return {
         "permutation_importance": importance,
         "grouped_permutation_importance": grouped_importance,
@@ -427,19 +505,16 @@ def _group_importance(
     grouped_value_column: str,
 ) -> pd.DataFrame:
     """Summerar importance per feature-grupp."""
-    grouped = (
+    return (
         importance.groupby("feature_group", as_index=False)
         .agg(
             **{
                 grouped_value_column: (value_column, "sum"),
-                "mean_importance": (value_column, "mean"),
-                "max_importance": (value_column, "max"),
                 "feature_count": ("feature", "count"),
             }
         )
         .sort_values(grouped_value_column, ascending=False)
     )
-    return grouped
 
 
 def _save_importance_plot(
@@ -449,11 +524,11 @@ def _save_importance_plot(
     title: str,
     output_path: Path,
     feature_column: str = "feature",
-    top_n: int = 30,
+    top_n: int = 20,
 ) -> None:
     """Sparar ett horisontellt stapeldiagram för de viktigaste features."""
     plot_data = importance.head(top_n).sort_values(value_column, ascending=True)
-    fig, ax = plt.subplots(figsize=(12, 10))
+    fig, ax = plt.subplots(figsize=(12, 8))
     ax.barh(plot_data[feature_column], plot_data[value_column])
     ax.set_title(title)
     ax.set_xlabel(value_column)

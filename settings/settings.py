@@ -22,18 +22,22 @@ RANDOM_STATE = 42    # fast seed för reproducerbara resultat
 # ── Modeller ─────────────────────────────────────────────────
 LR_MAX_ITER       = 2000           # max iterationer för logistisk regression
 RF_ESTIMATORS     = 100            # antal träd i Random Forest
-GRID_SEARCH_CV    = 7              # antal folds i GridSearchCV
-PERMUTATION_REPEATS = 1           # antal upprepningar för permutation importance
+GRID_SEARCH_CV    = 5              # antal folds i GridSearchCV
+PERMUTATION_REPEATS = 5           # antal upprepningar för permutation importance
 
 XGB_PARAM_GRID = {
     "n_estimators": [250],
-    "max_depth": [2, 7],
-    "learning_rate": [0.05, 0.1],
-    "subsample": [1.0, 0.8, 0.5]
+    "max_depth": [2],
+    "learning_rate": [0.1],
+    "subsample": [0.5],
+    "gamma": [0.0],
+    "reg_lambda": [1, 5],
+    "reg_alpha": [0, 0.1, 1],
 }
 
 # Vi har testat, som gav sämre resultat:
 # n_estimators = 50, 100, 200, 300, 350
-# learning_rate = 0.5, 0.1
-# max_depth = 3, 4, 5, 10, 20, 30
+# learning_rate = 0.05
+# max_depth = 2, 3, 4, 5, 10, 20, 30
 # subsample = 0.8, 0.9
+# gamma = 0.1

@@ -325,17 +325,16 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
     print(f"Rensad data: {df.shape[0]} rader, {df.shape[1]} kolumner")
     print(f"Target-kodad kolumn: {TARGET_SOURCE_COLUMN} -> {TARGET_COLUMN}")
-    print("Nya extraherade kolumner: ability_1, ability_2, ability_3, egg_group_1, egg_group_2")
+    print("Extraherade referenskolumner: abilities och egg_groups har delats upp")
 
     return df
 
 
 def build_training_dataframe(df: pd.DataFrame) -> pd.DataFrame:
-    """Skapar en tränings-DataFrame utan att ändra den rensade referensdatan.
+    """Skapar en tränings-DataFrame utan att ändra referensdatan.
 
-    Den returnerade DataFrame:n behåller TARGET_COLUMN som y och tar bort
-    kolumner som bara behövs för referens, identitet, råtext eller senare
-    bildladdning. Feature-kolumner sparas i df_training.attrs["feature_columns"].
+    Den returnerade DataFrame:n behåller TARGET_COLUMN som y, numeriska
+    träningsfeatures och dummy-kodade kategorier från DUMMY_COLUMNS.
     """
     required_columns = REFERENCE_ONLY_COLUMNS + DUMMY_COLUMNS
     missing = [column for column in required_columns if column not in df.columns]
@@ -363,12 +362,8 @@ def build_training_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     print(f"Referensdata behålls: {df.shape[0]} rader, {df.shape[1]} kolumner")
     print(f"Träningsdata:         {df_training.shape[0]} rader, {df_training.shape[1]} kolumner")
     print(f"Målkolumn:            {TARGET_COLUMN}")
-    print(f"Dummy-kolumner:       {len(dummy_columns)} från {DUMMY_COLUMNS}")
-    preview_count = 25
-    feature_preview = feature_columns[:preview_count]
-    if len(feature_columns) > preview_count:
-        feature_preview.append("...")
-    print(f"Feature-kolumner:    {len(feature_columns)} totalt, förhandsvisning: {feature_preview}")
-    print(f"Borttaget från träning: {REFERENCE_ONLY_COLUMNS}")
+    print(f"Dummy-featurekällor:  {DUMMY_COLUMNS}")
+    print(f"Dummy-kolumner:       {len(dummy_columns)}")
+    print(f"Feature-kolumner:    {len(feature_columns)} totalt")
 
     return df_training

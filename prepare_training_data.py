@@ -98,11 +98,6 @@ def prepare_training_data(
 
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
-    explained_variance_table.to_csv(
-        output_path / "pca_explained_variance.csv",
-        index=False,
-    )
-    top_pca_loadings.to_csv(output_path / "pca_top_loadings.csv", index=False)
     _save_explained_variance_plot(explained_variance_table, output_path)
 
     print(f"Rader träning/test:  {X_train_original.shape[0]} / {X_test_original.shape[0]}")
@@ -110,7 +105,7 @@ def prepare_training_data(
     print(f"Features efter PCA:  {X_train_pca.shape[1]}")
     print(f"Bevarad varians:     {explained_variance:.2%}")
     print(f"Målkolumn:           {target_column}")
-    print(f"PCA-rapport sparad:  {output_path}")
+    print(f"PCA-PNG sparad i:    {output_path}")
 
     return {
         "X_train_original": X_train_original,

@@ -5,13 +5,13 @@ Projektet bygger en supervised learning-pipeline för att förutsäga en Pokémo
 ## Flöde
 
 1. `load_data.py` läser in `dataset/pokemon_complete.csv`.
-2. `eda.py` kör EDA på rådata och sparar rapporter/figurer i `eda_outputs/`.
+2. `eda.py` kör EDA på rådata och sparar förklarande PNG-figurer i `eda_outputs/`.
 3. `data_clean.py` rensar rådata till `df_reference`.
 4. `eda.py` kör samma EDA på `df_reference` och skapar en jämförelse mot rådata.
 5. `data_clean.py` bygger `df_training`, där referenskolumner tas bort och kategorier omvandlas med `pd.get_dummies()`.
 6. `prepare_training_data.py` delar upp data i train/test, skalar features och kör PCA på träningsdelen.
 7. `train_models.py` tränar multinomial logistisk regression på PCA-data och XGBoost på originalfeatures.
-8. `train_models.py` utvärderar modellerna och sparar feature importance samt permutation importance.
+8. `train_models.py` sparar tränade modeller som `.pkl` och viktiga utvärderingsfigurer som PNG.
 
 ## Data
 
@@ -29,9 +29,9 @@ images/
 
 ## Träningsdata
 
-`df_reference` behåller rensad data för EDA, uppslag och tolkning av resultat. `df_training` är den modellklara tabellen.
+`df_reference` behåller rensad data för EDA, uppslag och tolkning av resultat. `df_training` är den modellklara tabellen med numeriska training features och dummy-kodade kategorier.
 
-Exkluderade träningskolumner inkluderar bland annat `name`, `type_2`, `genus`, `hidden_ability`, `generation`, `base_stat_total`, `base_experience`, `base_happiness`, legendary/mythical/baby-flaggor, antal abilities/egg groups, `evolution_chain_id` och `sprite_url`.
+Referenskolumner som `name`, `type_2`, abilities, egg groups och metadata exkluderas från träning. Den tredje XGBoost-körningen strippar sedan ner features till bara kategorierna nedan.
 
 Kategorier som används i träningen kodas med dummy-kolumner:
 
@@ -54,19 +54,24 @@ XGBoost tränas med `GridSearchCV` och flera hyperparametrar. Resultaten jämfö
 
 ## Modelloutput
 
-Modellrapporter sparas i `model_outputs/`:
+Modelloutput hålls kort och fokuserad. Tränade modeller sparas som `.pkl`, och utvärdering/importance sparas som PNG:
 
 ```text
-model_comparison.csv
-xgboost_best_params.json
-classification reports
-confusion matrices
-pca_explained_variance.csv/png
-xgboost_feature_importance.csv/png
-xgboost_permutation_importance.csv/png
+pokemon_type_training_logreg_pca_model.pkl
+pokemon_type_training_xgboost_grid_search_model.pkl
+pokemon_type_training_xgboost_stripped_features_model.pkl
+pokemon_type_training_model_comparison.png
+pokemon_type_training_logreg_pca_confusion_matrix.png
+pokemon_type_training_xgboost_grid_search_confusion_matrix.png
+pokemon_type_training_xgboost_stripped_features_confusion_matrix.png
+pca_explained_variance.png
+pokemon_type_training_xgboost_grid_search_feature_importance.png
+pokemon_type_training_xgboost_grid_search_permutation_importance.png
+pokemon_type_training_xgboost_stripped_features_feature_importance.png
+pokemon_type_training_xgboost_stripped_features_permutation_importance.png
 ```
 
-Feature importance och permutation importance sparas både per enskild dummy-feature och grupperat tillbaka till ursprungliga kategorikolumner som `color`, `shape` och `habitat`.
+Feature importance och permutation importance sparas som PNG både per enskild dummy-feature och grupperat tillbaka till ursprungliga kategorikolumner som `color`, `shape` och `habitat`.
 
 ## Körning
 
