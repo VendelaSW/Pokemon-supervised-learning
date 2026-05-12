@@ -16,6 +16,7 @@ from sklearn.metrics import (
     f1_score,
 )
 from sklearn.model_selection import GridSearchCV
+from sklearn.utils.class_weight import compute_sample_weight
 from xgboost import XGBClassifier
 
 from settings import (
@@ -99,6 +100,14 @@ def train_multinomial_regression(
 ) -> dict:
     """Tränar multinomial logistisk regression på PCA-transformerad data."""
     print("\n-- Träning 1/3: Multinomial logistisk regression ---------------")
+    _print_feature_columns(
+        "logreg_pca: originalfeatures före scaler/PCA",
+        training_data["feature_columns"],
+    )
+    _print_feature_columns(
+        "logreg_pca: PCA-komponenter som modellen tränas på",
+        training_data["pca_columns"],
+    )
 
     model = LogisticRegression(
         solver="lbfgs",
@@ -141,6 +150,11 @@ def train_xgboost_stripped_features(
     X_train, X_test, stripped_columns = _strip_xgboost_features(training_data)
     y_train = training_data["y_train"]
     y_test = training_data["y_test"]
+    sample_weight = _balanced_sample_weight(y_train)
+    _print_feature_columns(
+        "xgboost_stripped_features: features som modellen tränas på",
+        stripped_columns,
+    )
 
     base_model = XGBClassifier(
         objective="multi:softprob",
@@ -159,7 +173,7 @@ def train_xgboost_stripped_features(
         refit=True,
         verbose=1,
     )
-    grid_search.fit(X_train, y_train)
+    grid_search.fit(X_train, y_train, sample_weight=sample_weight)
 
     model = grid_search.best_estimator_
     y_pred = model.predict(X_test)
@@ -178,6 +192,7 @@ def train_xgboost_stripped_features(
             "target_labels": training_data.get("target_labels", {}),
             "best_params": grid_search.best_params_,
             "best_cv_score": grid_search.best_score_,
+            "sample_weight": "balanced",
         },
         output_dir / f"{run_label}_xgboost_stripped_features_model.pkl",
     )
@@ -221,6 +236,11 @@ def train_xgboost_grid_search(
     X_test = training_data["X_test_original"]
     y_train = training_data["y_train"]
     y_test = training_data["y_test"]
+    sample_weight = _balanced_sample_weight(y_train)
+    _print_feature_columns(
+        "xgboost_grid_search: features som modellen tränas på",
+        training_data["feature_columns"],
+    )
 
     base_model = XGBClassifier(
         objective="multi:softprob",
@@ -239,7 +259,7 @@ def train_xgboost_grid_search(
         refit=True,
         verbose=1,
     )
-    grid_search.fit(X_train, y_train)
+    grid_search.fit(X_train, y_train, sample_weight=sample_weight)
 
     model = grid_search.best_estimator_
     y_pred = model.predict(X_test)
@@ -258,6 +278,7 @@ def train_xgboost_grid_search(
             "target_labels": training_data.get("target_labels", {}),
             "best_params": grid_search.best_params_,
             "best_cv_score": grid_search.best_score_,
+            "sample_weight": "balanced",
         },
         output_dir / f"{run_label}_xgboost_grid_search_model.pkl",
     )
@@ -287,6 +308,19 @@ def train_xgboost_grid_search(
     results["feature_importance"] = importance
     results["permutation_importance"] = permutation
     return results
+
+
+def _balanced_sample_weight(y_train: pd.Series) -> np.ndarray:
+    """Skapar sample weights så ovanliga klasser väger mer vid XGBoost-träning."""
+    return compute_sample_weight(class_weight="balanced", y=y_train)
+
+
+def _print_feature_columns(title: str, columns: list[str]) -> None:
+    """Printar hela feature-listan utan trunkering."""
+    print(f"\n{title}")
+    print(f"Antal features: {len(columns)}")
+    for index, column in enumerate(columns, start=1):
+        print(f"{index:03d}. {column}")
 
 
 def _evaluate_model(
