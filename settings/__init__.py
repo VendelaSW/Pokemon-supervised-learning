@@ -3,6 +3,7 @@
 
 from .settings import (
     DATA_PATH,
+    MODEL_OUTPUT_DIR,
     IMAGE_DIR,
     IMG_SIZE,
     CHANNELS,
@@ -11,10 +12,14 @@ from .settings import (
     RANDOM_STATE,
     LR_MAX_ITER,
     RF_ESTIMATORS,
+    GRID_SEARCH_CV,
+    PERMUTATION_REPEATS,
+    XGB_PARAM_GRID,
 )
 
 __all__ = [
     "DATA_PATH",
+    "MODEL_OUTPUT_DIR",
     "IMAGE_DIR",
     "IMG_SIZE",
     "CHANNELS",
@@ -23,4 +28,7 @@ __all__ = [
     "RANDOM_STATE",
     "LR_MAX_ITER",
     "RF_ESTIMATORS",
+    "GRID_SEARCH_CV",
+    "PERMUTATION_REPEATS",
+    "XGB_PARAM_GRID",
 ]

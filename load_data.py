@@ -37,7 +37,5 @@ def load_data(data_path: Path) -> pd.DataFrame:
     print(f"Fil: {data_path}")
     print(f"Antal rader: {df.shape[0]}")
     print(f"Antal kolumner: {df.shape[1]}")
-    print(f"\nFörsta fem raderna:")
-    print(df.head())
 
     return df
