@@ -34,9 +34,19 @@ XGB_PARAM_GRID = {
     "reg_alpha": [0, 0.1, 0.2],
 }
 
+# Bästa fulla XGBoost-resultat hittills:
+# gamma=0.0, learning_rate=0.1, max_depth=2, n_estimators=250,
+# reg_alpha=0.1, reg_lambda=5, subsample=0.5
+#
+# Bästa stripped XGBoost-resultat hittills:
+# gamma=0.0, learning_rate=0.1, max_depth=2, n_estimators=250,
+# reg_alpha=0.1, reg_lambda=1, subsample=0.5
+#
+# Nya värden i gridden ligger nära bästa resultatet för att finjustera modellen.
+#
 # Vi har testat, som gav sämre resultat:
 # n_estimators = 50, 100, 200, 300, 350
 # learning_rate = 0.05
 # max_depth = 2, 3, 4, 5, 10, 20, 30, 40
 # subsample = 0.8, 0.9
-# gamma = 1
+# gamma = 0.1, 1

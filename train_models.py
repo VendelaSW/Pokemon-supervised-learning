@@ -52,6 +52,9 @@ STRIPPED_FEATURE_PREFIXES = tuple(
     f"{column}_"
     for column in DUMMY_SOURCE_COLUMNS
 )
+STRIPPED_NUMERIC_FEATURES = [
+    "sp_attack",
+]
 
 
 def train_models(
@@ -59,7 +62,7 @@ def train_models(
     output_dir: str | Path = MODEL_OUTPUT_DIR,
     run_label: str = "pokemon_type_training",
 ) -> dict:
-    """Tränar modeller, sparar .pkl och skapar de viktigaste PNG-figurerna."""
+    """Kör logreg på PCA, full XGBoost och stripped XGBoost."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -144,7 +147,7 @@ def train_xgboost_stripped_features(
     output_dir: Path,
     run_label: str,
 ) -> dict:
-    """Tränar XGBoost med GridSearchCV på den smala feature-mängden."""
+    """Tränar XGBoost på dummy-kategorier plus utvalda numeriska features."""
     print("\n-- Träning 3/3: XGBoost stripped features med GridSearchCV -----")
 
     X_train, X_test, stripped_columns = _strip_xgboost_features(training_data)
@@ -229,7 +232,7 @@ def train_xgboost_grid_search(
     output_dir: Path,
     run_label: str,
 ) -> dict:
-    """Tränar XGBoost på originalfeatures med GridSearchCV."""
+    """Tränar XGBoost på alla originalfeatures från df_training."""
     print("\n-- Träning 2/3: XGBoost med GridSearchCV -----------------------")
 
     X_train = training_data["X_train_original"]
@@ -371,11 +374,12 @@ def _evaluate_model(
 
 
 def _strip_xgboost_features(training_data: dict) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
-    """Väljer bara shape, habitat, color och growth_rate från training features."""
+    """Väljer stripped features: dummy-kategorier och sp_attack."""
     feature_columns = [
         column
         for column in training_data["feature_columns"]
-        if column.startswith(STRIPPED_FEATURE_PREFIXES)
+        if column in STRIPPED_NUMERIC_FEATURES
+        or column.startswith(STRIPPED_FEATURE_PREFIXES)
     ]
     if not feature_columns:
         raise ValueError("Hittade inga stripped features för XGBoost.")

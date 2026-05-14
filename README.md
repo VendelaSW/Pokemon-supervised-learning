@@ -10,7 +10,7 @@ Projektet bygger en supervised learning-pipeline för att förutsäga en Pokémo
 4. `eda.py` kör samma EDA på `df_reference` och skapar en jämförelse mot rådata.
 5. `data_clean.py` bygger `df_training`, där referenskolumner tas bort och kategorier omvandlas med `pd.get_dummies()`.
 6. `prepare_training_data.py` delar upp data i train/test, skalar features och kör PCA på träningsdelen.
-7. `train_models.py` tränar multinomial logistisk regression på PCA-data och XGBoost på originalfeatures.
+7. `train_models.py` tränar logreg på PCA-data, XGBoost på fulla training features och en extra XGBoost på stripped features.
 8. `train_models.py` sparar tränade modeller som `.pkl` och viktiga utvärderingsfigurer som PNG.
 
 ## Data
@@ -31,7 +31,7 @@ images/
 
 `df_reference` behåller rensad data för EDA, uppslag och tolkning av resultat. `df_training` är den modellklara tabellen med numeriska training features och dummy-kodade kategorier.
 
-Referenskolumner som `name`, `type_2`, abilities, egg groups och metadata exkluderas från träning. Den tredje XGBoost-körningen strippar sedan ner features till bara kategorierna nedan.
+Referenskolumner som `name`, `type_2`, abilities, egg groups och metadata exkluderas från träning. Den fulla träningsdatan använder numeriska stats som `hp`, `attack`, `defense`, `sp_attack`, `sp_defense`, `speed`, `height_m`, `weight_kg` och `capture_rate`, plus dummy-kolumner från kategorierna nedan.
 
 Kategorier som används i träningen kodas med dummy-kolumner:
 
@@ -41,6 +41,8 @@ shape
 habitat
 growth_rate
 ```
+
+Den tredje XGBoost-körningen strippar sedan ner fulla training features till dummy-kolumner från `color`, `shape`, `habitat`, `growth_rate` samt den numeriska kolumnen `sp_attack`.
 
 Målvariabeln är `type_1_encoded`, skapad från `type_1`.
 
@@ -67,11 +69,15 @@ pokemon_type_training_xgboost_stripped_features_confusion_matrix.png
 pca_explained_variance.png
 pokemon_type_training_xgboost_grid_search_feature_importance.png
 pokemon_type_training_xgboost_grid_search_permutation_importance.png
+pokemon_type_training_xgboost_grid_search_grouped_feature_importance.png
+pokemon_type_training_xgboost_grid_search_grouped_permutation_importance.png
 pokemon_type_training_xgboost_stripped_features_feature_importance.png
 pokemon_type_training_xgboost_stripped_features_permutation_importance.png
+pokemon_type_training_xgboost_stripped_features_grouped_feature_importance.png
+pokemon_type_training_xgboost_stripped_features_grouped_permutation_importance.png
 ```
 
-Feature importance och permutation importance sparas som PNG både per enskild dummy-feature och grupperat tillbaka till ursprungliga kategorikolumner som `color`, `shape` och `habitat`.
+Feature importance och permutation importance sparas som PNG både per enskild feature och grupperat tillbaka till ursprungliga kategorikolumner som `color`, `shape`, `habitat` och `growth_rate`.
 
 ## Körning
 

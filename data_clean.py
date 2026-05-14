@@ -62,20 +62,23 @@ REFERENCE_ONLY_COLUMNS = [
     # Identitetskolumner som bara används för uppslag och tolkning.
     "pokedex_number",
     "name",
-    # Rå text för målvariabel och kategorier.  Träningsdatan använder
-    # i stället target-kodning och dummy-kolumner.
+    # Rå målvariabel och sekundär typ sparas i df_reference, men träningsdatan
+    # använder type_1_encoded som y och exkluderar type_2.
     "type_1",
     "type_2",
+    # Abilities och egg groups extraheras för EDA/referens, men används inte
+    # som features i nuvarande modellflöde.
     "abilities",
     "ability_1",
     "ability_2",
     "ability_3",
     "hidden_ability",
-    "color",
-    "shape",
     "egg_groups",
     "egg_group_1",
     "egg_group_2",
+    # Dessa råkategorier ersätts av dummy-kolumner från DUMMY_COLUMNS.
+    "color",
+    "shape",
     "habitat",
     "growth_rate",
     "genus",
@@ -334,7 +337,8 @@ def build_training_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Skapar en tränings-DataFrame utan att ändra referensdatan.
 
     Den returnerade DataFrame:n behåller TARGET_COLUMN som y, numeriska
-    träningsfeatures och dummy-kodade kategorier från DUMMY_COLUMNS.
+    träningsfeatures och dummy-kodade kategorier från DUMMY_COLUMNS. Råkolumner
+    som behövs för tolkning ligger kvar i df_reference men tas bort här.
     """
     required_columns = REFERENCE_ONLY_COLUMNS + DUMMY_COLUMNS
     missing = [column for column in required_columns if column not in df.columns]

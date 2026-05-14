@@ -29,7 +29,10 @@ print("\n-- Modellflöde -------------------------------------------------")
 print(f"Körning: {RUN_LABEL}")
 print("1. training features -> PCA -> logreg")
 print("2. training features -> XGBoost med GridSearchCV")
-print("3. training features -> stripped features -> XGBoost med GridSearchCV")
+print(
+    "3. training features -> stripped features "
+    "(color, shape, habitat, growth_rate, sp_attack) -> XGBoost med GridSearchCV"
+)
 
 # ── 4. Bygg träningsdata, kör PCA och träna modell ────────────
 
