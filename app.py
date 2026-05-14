@@ -52,6 +52,9 @@ print(
 )
 print("7. training features -> RandomForest")
 print("8. training features + image_pca -> RandomForest")
+print("9. image_pca -> logreg")
+print("10. image_pca -> XGBoost med GridSearchCV")
+print("11. image_pca -> RandomForest")
 
 # ── 4. Ladda bildfeatures, kör PCA och träna modeller ─────────
 

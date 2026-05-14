@@ -3,10 +3,11 @@ Träningsförberedelse — Split, skalning och PCA
 ==============================================
 Tar emot df_training och skapar de matriser som används av modellerna.
 
-Funktionen gör en stratifierad train/test-split, skalar features och
-fit:ar PCA enbart på träningsdelen. Originalfeatures behålls parallellt
-för XGBoost, medan PCA-features används av logistisk regression. Om
-bildfeatures skickas in komprimeras råa pixlar först med en separat PCA.
+Funktionen gör en stratifierad train/test-split och fit:ar all skalning
+och PCA enbart på träningsdelen. Tabellfeatures skalas inför PCA, medan
+bildpixlar redan är normaliserade till 0-1 och skickas direkt till en
+separat PCA som centrerar datan internt. Image-only-vyer skapas från
+image_pca för att kunna testa om sprite-bilderna räcker utan tabellfeatures.
 """
 
 from __future__ import annotations
@@ -45,8 +46,10 @@ def prepare_training_data(
     df_training ska innehålla målkolumnen i df_training.attrs["target_column"].
     Funktionen returnerar både originalfeatures för XGBoost och PCA-features
     för logistisk regression. Om bildfeatures finns byggs även kombinerade
-    matriser med tabellfeatures och image_pca-kolumner. Skalare och PCA tränas
-    bara på träningsdelen för att testdatan inte ska påverka modellen.
+    matriser med tabellfeatures och image_pca-kolumner. Tabellscalers och PCA
+    tränas bara på träningsdelen för att testdatan inte ska påverka modellen.
+    Bild-PCA fit:as på 0-1-normaliserade träningspixlar utan StandardScaler.
+    Image-only-logreg får därefter en separat scaler på image_pca-features.
     """
     print("\n-- PCA och träningsklara matriser ------------------------------")
 
@@ -237,9 +240,15 @@ def _build_empty_image_training_data() -> dict:
         "X_test_with_images_pca": None,
         "with_images_feature_columns": [],
         "with_images_pca_columns": [],
+        "image_only_feature_columns": [],
         "image_pca_columns": [],
         "image_pca": None,
         "image_scaler": None,
+        "image_only_scaler": None,
+        "X_train_image_only": None,
+        "X_test_image_only": None,
+        "X_train_image_only_scaled": None,
+        "X_test_image_only_scaled": None,
         "with_images_scaler": None,
         "with_images_pca": None,
         "has_image_features": False,
@@ -257,17 +266,13 @@ def _build_image_training_data(
     X_test_original: pd.DataFrame,
     feature_columns: list[str],
 ) -> dict:
-    """Bygger image_pca-features och kombinerade PCA-matriser."""
-    image_scaler = StandardScaler()
-    image_train_scaled = image_scaler.fit_transform(image_train_raw)
-    image_test_scaled = image_scaler.transform(image_test_raw)
-
+    """Bygger image_pca direkt från 0-1-normaliserade pixlar."""
     image_pca = PCA(
         n_components=IMAGE_PCA_VARIANCE,
         random_state=RANDOM_STATE,
     )
-    image_train_pca = image_pca.fit_transform(image_train_scaled)
-    image_test_pca = image_pca.transform(image_test_scaled)
+    image_train_pca = image_pca.fit_transform(image_train_raw)
+    image_test_pca = image_pca.transform(image_test_raw)
     image_pca_columns = [
         f"image_pca_{index + 1:03d}"
         for index in range(image_train_pca.shape[1])
@@ -281,6 +286,21 @@ def _build_image_training_data(
         image_test_pca,
         columns=image_pca_columns,
         index=X_test_original.index,
+    )
+    X_train_image_only = X_train_image_pca
+    X_test_image_only = X_test_image_pca
+    image_only_feature_columns = image_pca_columns.copy()
+
+    image_only_scaler = StandardScaler()
+    X_train_image_only_scaled = pd.DataFrame(
+        image_only_scaler.fit_transform(X_train_image_only),
+        columns=image_only_feature_columns,
+        index=X_train_image_only.index,
+    )
+    X_test_image_only_scaled = pd.DataFrame(
+        image_only_scaler.transform(X_test_image_only),
+        columns=image_only_feature_columns,
+        index=X_test_image_only.index,
     )
 
     X_train_with_images = pd.concat([X_train_original, X_train_image_pca], axis=1)
@@ -306,9 +326,15 @@ def _build_image_training_data(
         "X_test_with_images_pca": X_test_with_images_pca,
         "with_images_feature_columns": with_images_feature_columns,
         "with_images_pca_columns": with_images_pca_columns,
+        "image_only_feature_columns": image_only_feature_columns,
         "image_pca_columns": image_pca_columns,
         "image_pca": image_pca,
-        "image_scaler": image_scaler,
+        "image_scaler": None,
+        "image_only_scaler": image_only_scaler,
+        "X_train_image_only": X_train_image_only,
+        "X_test_image_only": X_test_image_only,
+        "X_train_image_only_scaled": X_train_image_only_scaled,
+        "X_test_image_only_scaled": X_test_image_only_scaled,
         "with_images_scaler": with_images_scaler,
         "with_images_pca": with_images_pca,
         "has_image_features": True,

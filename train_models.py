@@ -1,11 +1,12 @@
 """
 Modellträning — Logreg, XGBoost och utvärdering
 ===============================================
-Tränar upp till åtta modellflöden på den förberedda träningsdatan:
+Tränar upp till elva modellflöden på den förberedda träningsdatan:
 logistisk regression på PCA-features, XGBoost på fulla training
 features och XGBoost på stripped features. Om image features finns
 körs motsvarande tre flöden även med PCA-komprimerade sprite-features.
 RandomForest körs som en fast baseline med och utan image features.
+Sist körs tre image-only-flöden som bara använder image_pca-features.
 
 Modulen sparar tränade modeller som pkl och skapar fokuserade PNG-
 figurer för jämförelse, confusion matrix och feature importance.
@@ -85,7 +86,7 @@ def train_models(
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     has_image_features = training_data.get("has_image_features", False)
-    total_steps = 8 if has_image_features else 4
+    total_steps = 11 if has_image_features else 4
 
     print(f"\n-- Körning: {run_label} ----------------------------------------")
     result_items = []
@@ -175,6 +176,35 @@ def train_models(
             progress.update(1)
             result_items.append(
                 ("random_forest_with_images", random_forest_with_images_results)
+            )
+
+            logreg_image_only_results = train_logreg_image_only(
+                training_data,
+                output_path,
+                run_label,
+                total_steps,
+            )
+            progress.update(1)
+            xgboost_image_only_results = train_xgboost_image_only(
+                training_data,
+                output_path,
+                run_label,
+                total_steps,
+            )
+            progress.update(1)
+            random_forest_image_only_results = train_random_forest_image_only(
+                training_data,
+                output_path,
+                run_label,
+                total_steps,
+            )
+            progress.update(1)
+            result_items.extend(
+                [
+                    ("logreg_image_only", logreg_image_only_results),
+                    ("xgboost_image_only", xgboost_image_only_results),
+                    ("random_forest_image_only", random_forest_image_only_results),
+                ]
             )
 
     comparison = pd.DataFrame(
@@ -808,6 +838,221 @@ def train_random_forest_with_images(
         output_dir,
         run_label,
         model_name="random_forest_with_images",
+    )
+
+    results["model"] = model
+    results["feature_importance"] = importance
+    results["permutation_importance"] = permutation
+    return results
+
+
+def train_logreg_image_only(
+    training_data: dict,
+    output_dir: Path,
+    run_label: str,
+    total_steps: int,
+) -> dict:
+    """Tränar logistisk regression endast på skalade image_pca-features."""
+    print(
+        f"\n-- Träning 9/{total_steps}: "
+        "Multinomial logistisk regression image-only ------"
+    )
+
+    feature_columns = training_data["image_only_feature_columns"]
+    _print_feature_columns(
+        "logreg_image_only: image_pca-features som modellen tränas på",
+        feature_columns,
+    )
+
+    model = LogisticRegression(
+        solver="lbfgs",
+        max_iter=LR_MAX_ITER,
+        random_state=RANDOM_STATE,
+    )
+    model.fit(training_data["X_train_image_only_scaled"], training_data["y_train"])
+    y_pred = model.predict(training_data["X_test_image_only_scaled"])
+
+    results = _evaluate_model(
+        model_name="logreg_image_only",
+        y_test=training_data["y_test"],
+        y_pred=y_pred,
+        target_labels=training_data.get("target_labels", {}),
+        output_dir=output_dir,
+        run_label=run_label,
+    )
+    joblib.dump(
+        {
+            "model": model,
+            "image_only_scaler": training_data["image_only_scaler"],
+            "image_pca": training_data["image_pca"],
+            "image_pca_columns": training_data["image_pca_columns"],
+            "image_only_feature_columns": feature_columns,
+            "target_labels": training_data.get("target_labels", {}),
+        },
+        output_dir / f"{run_label}_logreg_image_only_model.pkl",
+    )
+    results["model"] = model
+    return results
+
+
+def train_xgboost_image_only(
+    training_data: dict,
+    output_dir: Path,
+    run_label: str,
+    total_steps: int,
+) -> dict:
+    """Tränar XGBoost endast på image_pca-features."""
+    print(
+        f"\n-- Träning 10/{total_steps}: "
+        "XGBoost image-only med GridSearchCV -------------"
+    )
+
+    X_train = training_data["X_train_image_only"]
+    X_test = training_data["X_test_image_only"]
+    y_train = training_data["y_train"]
+    y_test = training_data["y_test"]
+    feature_columns = training_data["image_only_feature_columns"]
+    sample_weight = _balanced_sample_weight(y_train)
+    _print_feature_columns(
+        "xgboost_image_only: image_pca-features som modellen tränas på",
+        feature_columns,
+    )
+
+    base_model = XGBClassifier(
+        objective="multi:softprob",
+        eval_metric="mlogloss",
+        num_class=len(np.unique(y_train)),
+        tree_method="hist",
+        n_jobs=1,
+        random_state=RANDOM_STATE,
+    )
+    grid_search = GridSearchCV(
+        estimator=base_model,
+        param_grid=XGB_PARAM_GRID,
+        scoring="balanced_accuracy",
+        cv=GRID_SEARCH_CV,
+        n_jobs=-1,
+        refit=True,
+        verbose=0,
+    )
+    _fit_grid_search_with_progress(
+        grid_search,
+        X_train,
+        y_train,
+        sample_weight=sample_weight,
+        description="xgboost_image_only",
+    )
+
+    model = grid_search.best_estimator_
+    y_pred = model.predict(X_test)
+    results = _evaluate_model(
+        model_name="xgboost_image_only",
+        y_test=y_test,
+        y_pred=y_pred,
+        target_labels=training_data.get("target_labels", {}),
+        output_dir=output_dir,
+        run_label=run_label,
+    )
+    joblib.dump(
+        {
+            "model": model,
+            "feature_columns": feature_columns,
+            "image_pca": training_data["image_pca"],
+            "image_pca_columns": training_data["image_pca_columns"],
+            "target_labels": training_data.get("target_labels", {}),
+            "best_params": grid_search.best_params_,
+            "best_cv_score": grid_search.best_score_,
+            "sample_weight": "balanced",
+        },
+        output_dir / f"{run_label}_xgboost_image_only_model.pkl",
+    )
+
+    importance = _save_feature_importance(
+        model,
+        feature_columns,
+        output_dir,
+        run_label,
+        model_name="xgboost_image_only",
+    )
+    permutation = _save_permutation_importance(
+        model,
+        X_test,
+        y_test,
+        output_dir,
+        run_label,
+        model_name="xgboost_image_only",
+    )
+
+    print(f"Bästa image-only XGBoost-parametrar: {grid_search.best_params_}")
+    print(f"Bästa image-only CV balanced accuracy: {grid_search.best_score_:.3f}")
+
+    results["model"] = model
+    results["best_params"] = grid_search.best_params_
+    results["best_cv_score"] = grid_search.best_score_
+    results["feature_importance"] = importance
+    results["permutation_importance"] = permutation
+    return results
+
+
+def train_random_forest_image_only(
+    training_data: dict,
+    output_dir: Path,
+    run_label: str,
+    total_steps: int,
+) -> dict:
+    """Tränar RandomForest endast på image_pca-features."""
+    print(
+        f"\n-- Träning 11/{total_steps}: "
+        "RandomForest image-only ---------------------------"
+    )
+
+    X_train = training_data["X_train_image_only"]
+    X_test = training_data["X_test_image_only"]
+    y_train = training_data["y_train"]
+    y_test = training_data["y_test"]
+    feature_columns = training_data["image_only_feature_columns"]
+    _print_feature_columns(
+        "random_forest_image_only: image_pca-features som modellen tränas på",
+        feature_columns,
+    )
+
+    model = _make_random_forest()
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    results = _evaluate_model(
+        model_name="random_forest_image_only",
+        y_test=y_test,
+        y_pred=y_pred,
+        target_labels=training_data.get("target_labels", {}),
+        output_dir=output_dir,
+        run_label=run_label,
+    )
+    joblib.dump(
+        {
+            "model": model,
+            "feature_columns": feature_columns,
+            "image_pca": training_data["image_pca"],
+            "image_pca_columns": training_data["image_pca_columns"],
+            "target_labels": training_data.get("target_labels", {}),
+            "class_weight": "balanced",
+        },
+        output_dir / f"{run_label}_random_forest_image_only_model.pkl",
+    )
+
+    importance = _save_feature_importance(
+        model,
+        feature_columns,
+        output_dir,
+        run_label,
+        model_name="random_forest_image_only",
+    )
+    permutation = _save_permutation_importance(
+        model,
+        X_test,
+        y_test,
+        output_dir,
+        run_label,
+        model_name="random_forest_image_only",
     )
 
     results["model"] = model
