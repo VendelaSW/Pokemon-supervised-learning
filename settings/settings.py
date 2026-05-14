@@ -20,6 +20,7 @@ MODEL_OUTPUT_DIR = Path("model_outputs")                # mapp för modellrappor
 # ── Bildbehandling ───────────────────────────────────────────
 IMG_SIZE   = 96      # bilder skalas till IMG_SIZE × IMG_SIZE pixlar
 CHANNELS   = 3       # RGB (alfa ersätts med svart bakgrund)
+IMAGE_PCA_VARIANCE = 0.90  # behåll 90 % av variansen i råa sprite-pixlar
 
 # ── PCA ──────────────────────────────────────────────────────
 PCA_VARIANCE = 0.95  # behåll 95 % av variansen i träningsfeatures
@@ -32,6 +33,9 @@ RANDOM_STATE = 42    # fast seed för reproducerbara resultat
 LR_MAX_ITER       = 2000           # max iterationer för logistisk regression
 GRID_SEARCH_CV    = 3              # antal folds i GridSearchCV
 PERMUTATION_REPEATS = 5           # antal upprepningar för permutation importance
+RF_ESTIMATORS = 300               # antal träd i RandomForest-baseline
+RF_MAX_DEPTH = None               # None låter träden växa tills stoppvillkor nås
+RF_MIN_SAMPLES_LEAF = 1           # minsta antal rader i ett löv
 
 XGB_PARAM_GRID = {
     "n_estimators": [250, 255, 275],

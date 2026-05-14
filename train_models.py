@@ -1,9 +1,11 @@
 """
 Modellträning — Logreg, XGBoost och utvärdering
 ===============================================
-Tränar tre modellflöden på den förberedda träningsdatan:
+Tränar upp till åtta modellflöden på den förberedda träningsdatan:
 logistisk regression på PCA-features, XGBoost på fulla training
-features och XGBoost på stripped features.
+features och XGBoost på stripped features. Om image features finns
+körs motsvarande tre flöden även med PCA-komprimerade sprite-features.
+RandomForest körs som en fast baseline med och utan image features.
 
 Modulen sparar tränade modeller som pkl och skapar fokuserade PNG-
 figurer för jämförelse, confusion matrix och feature importance.
@@ -12,11 +14,13 @@ figurer för jämförelse, confusion matrix och feature importance.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import permutation_importance
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -26,8 +30,9 @@ from sklearn.metrics import (
     confusion_matrix,
     f1_score,
 )
-from sklearn.model_selection import GridSearchCV
+from sklearn.model_selection import GridSearchCV, ParameterGrid
 from sklearn.utils.class_weight import compute_sample_weight
+from tqdm.auto import tqdm
 from xgboost import XGBClassifier
 
 from settings import (
@@ -36,6 +41,9 @@ from settings import (
     MODEL_OUTPUT_DIR,
     PERMUTATION_REPEATS,
     RANDOM_STATE,
+    RF_ESTIMATORS,
+    RF_MAX_DEPTH,
+    RF_MIN_SAMPLES_LEAF,
     XGB_PARAM_GRID,
 )
 
@@ -73,24 +81,104 @@ def train_models(
     output_dir: str | Path = MODEL_OUTPUT_DIR,
     run_label: str = "pokemon_type_training",
 ) -> dict:
-    """Kör de tre modellflödena och sparar modeller samt PNG-figurer."""
+    """Kör modellflödena och sparar modeller samt PNG-figurer."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    has_image_features = training_data.get("has_image_features", False)
+    total_steps = 8 if has_image_features else 4
 
     print(f"\n-- Körning: {run_label} ----------------------------------------")
-    logreg_results = train_multinomial_regression(training_data, output_path, run_label)
-    xgboost_results = train_xgboost_grid_search(training_data, output_path, run_label)
-    xgboost_stripped_results = train_xgboost_stripped_features(
-        training_data,
-        output_path,
-        run_label,
-    )
+    result_items = []
+    with tqdm(total=total_steps, desc="Modellträning", unit="modell") as progress:
+        logreg_results = train_multinomial_regression(
+            training_data,
+            output_path,
+            run_label,
+            total_steps,
+        )
+        progress.update(1)
+        xgboost_results = train_xgboost_grid_search(
+            training_data,
+            output_path,
+            run_label,
+            total_steps,
+        )
+        progress.update(1)
+        xgboost_stripped_results = train_xgboost_stripped_features(
+            training_data,
+            output_path,
+            run_label,
+            total_steps,
+        )
+        progress.update(1)
+        result_items.extend(
+            [
+                ("logreg", logreg_results),
+                ("xgboost_grid_search", xgboost_results),
+                ("xgboost_stripped_features", xgboost_stripped_results),
+            ]
+        )
+
+        if has_image_features:
+            logreg_with_images_results = train_multinomial_regression_with_images(
+                training_data,
+                output_path,
+                run_label,
+                total_steps,
+            )
+            progress.update(1)
+            xgboost_with_images_results = train_xgboost_grid_search_with_images(
+                training_data,
+                output_path,
+                run_label,
+                total_steps,
+            )
+            progress.update(1)
+            xgboost_stripped_with_images_results = (
+                train_xgboost_stripped_features_with_images(
+                    training_data,
+                    output_path,
+                    run_label,
+                    total_steps,
+                )
+            )
+            progress.update(1)
+            result_items.extend(
+                [
+                    ("logreg_pca_with_images", logreg_with_images_results),
+                    ("xgboost_grid_search_with_images", xgboost_with_images_results),
+                    (
+                        "xgboost_stripped_features_with_images",
+                        xgboost_stripped_with_images_results,
+                    ),
+                ]
+            )
+
+        random_forest_step = 7 if has_image_features else 4
+        random_forest_results = train_random_forest(
+            training_data,
+            output_path,
+            run_label,
+            total_steps,
+            random_forest_step,
+        )
+        progress.update(1)
+        result_items.append(("random_forest", random_forest_results))
+
+        if has_image_features:
+            random_forest_with_images_results = train_random_forest_with_images(
+                training_data,
+                output_path,
+                run_label,
+                total_steps,
+            )
+            progress.update(1)
+            result_items.append(
+                ("random_forest_with_images", random_forest_with_images_results)
+            )
+
     comparison = pd.DataFrame(
-        [
-            logreg_results["metrics"],
-            xgboost_results["metrics"],
-            xgboost_stripped_results["metrics"],
-        ]
+        [results["metrics"] for _, results in result_items]
     )
     _save_model_comparison_plot(comparison, output_path, run_label)
 
@@ -99,21 +187,19 @@ def train_models(
     print(comparison.round(3).to_string(index=False))
     print(f"\nViktiga modellfiler och PNG-figurer sparade i: {output_path}")
 
-    return {
-        "logreg": logreg_results,
-        "xgboost_grid_search": xgboost_results,
-        "xgboost_stripped_features": xgboost_stripped_results,
-        "model_comparison": comparison,
-    }
+    results = {name: result for name, result in result_items}
+    results["model_comparison"] = comparison
+    return results
 
 
 def train_multinomial_regression(
     training_data: dict,
     output_dir: Path,
     run_label: str,
+    total_steps: int = 3,
 ) -> dict:
     """Tränar multinomial logistisk regression på PCA-transformerad data."""
-    print("\n-- Träning 1/3: Multinomial logistisk regression ---------------")
+    print(f"\n-- Träning 1/{total_steps}: Multinomial logistisk regression ---------------")
     _print_feature_columns(
         "logreg_pca: originalfeatures före scaler/PCA",
         training_data["feature_columns"],
@@ -153,13 +239,71 @@ def train_multinomial_regression(
     return results
 
 
+def train_multinomial_regression_with_images(
+    training_data: dict,
+    output_dir: Path,
+    run_label: str,
+    total_steps: int,
+) -> dict:
+    """Tränar logistisk regression på PCA av tabellfeatures och image_pca."""
+    print(
+        f"\n-- Träning 4/{total_steps}: "
+        "Multinomial logistisk regression med bildfeatures --"
+    )
+    _print_feature_columns(
+        "logreg_pca_with_images: features före scaler/PCA",
+        training_data["with_images_feature_columns"],
+    )
+    _print_feature_columns(
+        "logreg_pca_with_images: PCA-komponenter som modellen tränas på",
+        training_data["with_images_pca_columns"],
+    )
+
+    model = LogisticRegression(
+        solver="lbfgs",
+        max_iter=LR_MAX_ITER,
+        random_state=RANDOM_STATE,
+    )
+    model.fit(training_data["X_train_with_images_pca"], training_data["y_train"])
+    y_pred = model.predict(training_data["X_test_with_images_pca"])
+
+    results = _evaluate_model(
+        model_name="logreg_pca_with_images",
+        y_test=training_data["y_test"],
+        y_pred=y_pred,
+        target_labels=training_data.get("target_labels", {}),
+        output_dir=output_dir,
+        run_label=run_label,
+    )
+    joblib.dump(
+        {
+            "model": model,
+            "image_scaler": training_data["image_scaler"],
+            "image_pca": training_data["image_pca"],
+            "image_pca_columns": training_data["image_pca_columns"],
+            "with_images_scaler": training_data["with_images_scaler"],
+            "with_images_pca": training_data["with_images_pca"],
+            "with_images_pca_columns": training_data["with_images_pca_columns"],
+            "with_images_feature_columns": training_data["with_images_feature_columns"],
+            "target_labels": training_data.get("target_labels", {}),
+        },
+        output_dir / f"{run_label}_logreg_pca_with_images_model.pkl",
+    )
+    results["model"] = model
+    return results
+
+
 def train_xgboost_stripped_features(
     training_data: dict,
     output_dir: Path,
     run_label: str,
+    total_steps: int = 3,
 ) -> dict:
     """Tränar XGBoost på dummy-kategorier plus utvalda numeriska features."""
-    print("\n-- Träning 3/3: XGBoost stripped features med GridSearchCV -----")
+    print(
+        f"\n-- Träning 3/{total_steps}: "
+        "XGBoost stripped features med GridSearchCV -----"
+    )
 
     X_train, X_test, stripped_columns = _strip_xgboost_features(training_data)
     y_train = training_data["y_train"]
@@ -185,9 +329,15 @@ def train_xgboost_stripped_features(
         cv=GRID_SEARCH_CV,
         n_jobs=-1,
         refit=True,
-        verbose=1,
+        verbose=0,
     )
-    grid_search.fit(X_train, y_train, sample_weight=sample_weight)
+    _fit_grid_search_with_progress(
+        grid_search,
+        X_train,
+        y_train,
+        sample_weight=sample_weight,
+        description="xgboost_stripped_features",
+    )
 
     model = grid_search.best_estimator_
     y_pred = model.predict(X_test)
@@ -211,7 +361,7 @@ def train_xgboost_stripped_features(
         output_dir / f"{run_label}_xgboost_stripped_features_model.pkl",
     )
 
-    importance = _save_xgboost_feature_importance(
+    importance = _save_feature_importance(
         model,
         stripped_columns,
         output_dir,
@@ -242,9 +392,10 @@ def train_xgboost_grid_search(
     training_data: dict,
     output_dir: Path,
     run_label: str,
+    total_steps: int = 3,
 ) -> dict:
     """Tränar XGBoost på alla originalfeatures från df_training."""
-    print("\n-- Träning 2/3: XGBoost med GridSearchCV -----------------------")
+    print(f"\n-- Träning 2/{total_steps}: XGBoost med GridSearchCV -----------------------")
 
     X_train = training_data["X_train_original"]
     X_test = training_data["X_test_original"]
@@ -271,9 +422,15 @@ def train_xgboost_grid_search(
         cv=GRID_SEARCH_CV,
         n_jobs=-1,
         refit=True,
-        verbose=1,
+        verbose=0,
     )
-    grid_search.fit(X_train, y_train, sample_weight=sample_weight)
+    _fit_grid_search_with_progress(
+        grid_search,
+        X_train,
+        y_train,
+        sample_weight=sample_weight,
+        description="xgboost_grid_search",
+    )
 
     model = grid_search.best_estimator_
     y_pred = model.predict(X_test)
@@ -297,7 +454,7 @@ def train_xgboost_grid_search(
         output_dir / f"{run_label}_xgboost_grid_search_model.pkl",
     )
 
-    importance = _save_xgboost_feature_importance(
+    importance = _save_feature_importance(
         model,
         training_data["feature_columns"],
         output_dir,
@@ -324,9 +481,394 @@ def train_xgboost_grid_search(
     return results
 
 
+def train_xgboost_grid_search_with_images(
+    training_data: dict,
+    output_dir: Path,
+    run_label: str,
+    total_steps: int,
+) -> dict:
+    """Tränar XGBoost på tabellfeatures och PCA-komprimerade bildfeatures."""
+    print(
+        f"\n-- Träning 5/{total_steps}: "
+        "XGBoost med image features och GridSearchCV ------"
+    )
+
+    X_train = training_data["X_train_with_images"]
+    X_test = training_data["X_test_with_images"]
+    y_train = training_data["y_train"]
+    y_test = training_data["y_test"]
+    sample_weight = _balanced_sample_weight(y_train)
+    feature_columns = training_data["with_images_feature_columns"]
+    _print_feature_columns(
+        "xgboost_grid_search_with_images: features som modellen tränas på",
+        feature_columns,
+    )
+
+    base_model = XGBClassifier(
+        objective="multi:softprob",
+        eval_metric="mlogloss",
+        num_class=len(np.unique(y_train)),
+        tree_method="hist",
+        n_jobs=1,
+        random_state=RANDOM_STATE,
+    )
+    grid_search = GridSearchCV(
+        estimator=base_model,
+        param_grid=XGB_PARAM_GRID,
+        scoring="balanced_accuracy",
+        cv=GRID_SEARCH_CV,
+        n_jobs=-1,
+        refit=True,
+        verbose=0,
+    )
+    _fit_grid_search_with_progress(
+        grid_search,
+        X_train,
+        y_train,
+        sample_weight=sample_weight,
+        description="xgboost_grid_search_with_images",
+    )
+
+    model = grid_search.best_estimator_
+    y_pred = model.predict(X_test)
+    results = _evaluate_model(
+        model_name="xgboost_grid_search_with_images",
+        y_test=y_test,
+        y_pred=y_pred,
+        target_labels=training_data.get("target_labels", {}),
+        output_dir=output_dir,
+        run_label=run_label,
+    )
+    joblib.dump(
+        {
+            "model": model,
+            "feature_columns": feature_columns,
+            "image_scaler": training_data["image_scaler"],
+            "image_pca": training_data["image_pca"],
+            "image_pca_columns": training_data["image_pca_columns"],
+            "target_labels": training_data.get("target_labels", {}),
+            "best_params": grid_search.best_params_,
+            "best_cv_score": grid_search.best_score_,
+            "sample_weight": "balanced",
+        },
+        output_dir / f"{run_label}_xgboost_grid_search_with_images_model.pkl",
+    )
+
+    importance = _save_feature_importance(
+        model,
+        feature_columns,
+        output_dir,
+        run_label,
+        model_name="xgboost_grid_search_with_images",
+    )
+    permutation = _save_permutation_importance(
+        model,
+        X_test,
+        y_test,
+        output_dir,
+        run_label,
+        model_name="xgboost_grid_search_with_images",
+    )
+
+    print(f"Bästa XGBoost-parametrar med bild: {grid_search.best_params_}")
+    print(f"Bästa CV balanced accuracy med bild: {grid_search.best_score_:.3f}")
+
+    results["model"] = model
+    results["best_params"] = grid_search.best_params_
+    results["best_cv_score"] = grid_search.best_score_
+    results["feature_importance"] = importance
+    results["permutation_importance"] = permutation
+    return results
+
+
+def train_xgboost_stripped_features_with_images(
+    training_data: dict,
+    output_dir: Path,
+    run_label: str,
+    total_steps: int,
+) -> dict:
+    """Tränar stripped XGBoost på tabellfeatures och image_pca."""
+    print(
+        f"\n-- Träning 6/{total_steps}: "
+        "XGBoost stripped features med image features --------"
+    )
+
+    X_train, X_test, stripped_columns = _strip_xgboost_features(
+        training_data,
+        include_image_features=True,
+    )
+    y_train = training_data["y_train"]
+    y_test = training_data["y_test"]
+    sample_weight = _balanced_sample_weight(y_train)
+    _print_feature_columns(
+        "xgboost_stripped_features_with_images: features som modellen tränas på",
+        stripped_columns,
+    )
+
+    base_model = XGBClassifier(
+        objective="multi:softprob",
+        eval_metric="mlogloss",
+        num_class=len(np.unique(y_train)),
+        tree_method="hist",
+        n_jobs=1,
+        random_state=RANDOM_STATE,
+    )
+    grid_search = GridSearchCV(
+        estimator=base_model,
+        param_grid=XGB_PARAM_GRID,
+        scoring="balanced_accuracy",
+        cv=GRID_SEARCH_CV,
+        n_jobs=-1,
+        refit=True,
+        verbose=0,
+    )
+    _fit_grid_search_with_progress(
+        grid_search,
+        X_train,
+        y_train,
+        sample_weight=sample_weight,
+        description="xgboost_stripped_features_with_images",
+    )
+
+    model = grid_search.best_estimator_
+    y_pred = model.predict(X_test)
+    results = _evaluate_model(
+        model_name="xgboost_stripped_features_with_images",
+        y_test=y_test,
+        y_pred=y_pred,
+        target_labels=training_data.get("target_labels", {}),
+        output_dir=output_dir,
+        run_label=run_label,
+    )
+    joblib.dump(
+        {
+            "model": model,
+            "feature_columns": stripped_columns,
+            "image_scaler": training_data["image_scaler"],
+            "image_pca": training_data["image_pca"],
+            "image_pca_columns": training_data["image_pca_columns"],
+            "target_labels": training_data.get("target_labels", {}),
+            "best_params": grid_search.best_params_,
+            "best_cv_score": grid_search.best_score_,
+            "sample_weight": "balanced",
+        },
+        output_dir / f"{run_label}_xgboost_stripped_features_with_images_model.pkl",
+    )
+
+    importance = _save_feature_importance(
+        model,
+        stripped_columns,
+        output_dir,
+        run_label,
+        model_name="xgboost_stripped_features_with_images",
+    )
+    permutation = _save_permutation_importance(
+        model,
+        X_test,
+        y_test,
+        output_dir,
+        run_label,
+        model_name="xgboost_stripped_features_with_images",
+    )
+
+    print(f"Bästa stripped XGBoost-parametrar med bild: {grid_search.best_params_}")
+    print(f"Bästa stripped CV balanced accuracy med bild: {grid_search.best_score_:.3f}")
+
+    results["model"] = model
+    results["best_params"] = grid_search.best_params_
+    results["best_cv_score"] = grid_search.best_score_
+    results["feature_importance"] = importance
+    results["permutation_importance"] = permutation
+    return results
+
+
+def train_random_forest(
+    training_data: dict,
+    output_dir: Path,
+    run_label: str,
+    total_steps: int,
+    step_number: int,
+) -> dict:
+    """Tränar RandomForest på fulla tabellfeatures."""
+    print(
+        f"\n-- Träning {step_number}/{total_steps}: "
+        "RandomForest på training features -------------------"
+    )
+
+    X_train = training_data["X_train_original"]
+    X_test = training_data["X_test_original"]
+    y_train = training_data["y_train"]
+    y_test = training_data["y_test"]
+    feature_columns = training_data["feature_columns"]
+    _print_feature_columns(
+        "random_forest: features som modellen tränas på",
+        feature_columns,
+    )
+
+    model = _make_random_forest()
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    results = _evaluate_model(
+        model_name="random_forest",
+        y_test=y_test,
+        y_pred=y_pred,
+        target_labels=training_data.get("target_labels", {}),
+        output_dir=output_dir,
+        run_label=run_label,
+    )
+    joblib.dump(
+        {
+            "model": model,
+            "feature_columns": feature_columns,
+            "target_labels": training_data.get("target_labels", {}),
+            "class_weight": "balanced",
+        },
+        output_dir / f"{run_label}_random_forest_model.pkl",
+    )
+
+    importance = _save_feature_importance(
+        model,
+        feature_columns,
+        output_dir,
+        run_label,
+        model_name="random_forest",
+    )
+    permutation = _save_permutation_importance(
+        model,
+        X_test,
+        y_test,
+        output_dir,
+        run_label,
+        model_name="random_forest",
+    )
+
+    results["model"] = model
+    results["feature_importance"] = importance
+    results["permutation_importance"] = permutation
+    return results
+
+
+def train_random_forest_with_images(
+    training_data: dict,
+    output_dir: Path,
+    run_label: str,
+    total_steps: int,
+) -> dict:
+    """Tränar RandomForest på tabellfeatures och image_pca."""
+    print(
+        f"\n-- Träning 8/{total_steps}: "
+        "RandomForest med image features --------------------"
+    )
+
+    X_train = training_data["X_train_with_images"]
+    X_test = training_data["X_test_with_images"]
+    y_train = training_data["y_train"]
+    y_test = training_data["y_test"]
+    feature_columns = training_data["with_images_feature_columns"]
+    _print_feature_columns(
+        "random_forest_with_images: features som modellen tränas på",
+        feature_columns,
+    )
+
+    model = _make_random_forest()
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    results = _evaluate_model(
+        model_name="random_forest_with_images",
+        y_test=y_test,
+        y_pred=y_pred,
+        target_labels=training_data.get("target_labels", {}),
+        output_dir=output_dir,
+        run_label=run_label,
+    )
+    joblib.dump(
+        {
+            "model": model,
+            "feature_columns": feature_columns,
+            "image_scaler": training_data["image_scaler"],
+            "image_pca": training_data["image_pca"],
+            "image_pca_columns": training_data["image_pca_columns"],
+            "target_labels": training_data.get("target_labels", {}),
+            "class_weight": "balanced",
+        },
+        output_dir / f"{run_label}_random_forest_with_images_model.pkl",
+    )
+
+    importance = _save_feature_importance(
+        model,
+        feature_columns,
+        output_dir,
+        run_label,
+        model_name="random_forest_with_images",
+    )
+    permutation = _save_permutation_importance(
+        model,
+        X_test,
+        y_test,
+        output_dir,
+        run_label,
+        model_name="random_forest_with_images",
+    )
+
+    results["model"] = model
+    results["feature_importance"] = importance
+    results["permutation_importance"] = permutation
+    return results
+
+
+def _make_random_forest() -> RandomForestClassifier:
+    """Skapar RandomForest-baseline med gemensamma settings."""
+    return RandomForestClassifier(
+        n_estimators=RF_ESTIMATORS,
+        max_depth=RF_MAX_DEPTH,
+        min_samples_leaf=RF_MIN_SAMPLES_LEAF,
+        class_weight="balanced",
+        n_jobs=-1,
+        random_state=RANDOM_STATE,
+    )
+
+
 def _balanced_sample_weight(y_train: pd.Series) -> np.ndarray:
     """Skapar sample weights så ovanliga klasser väger mer vid XGBoost-träning."""
     return compute_sample_weight(class_weight="balanced", y=y_train)
+
+
+@contextmanager
+def _tqdm_joblib(progress_bar: tqdm):
+    """Kopplar joblib-parallellism till en tqdm-progressbar."""
+    old_callback = joblib.parallel.BatchCompletionCallBack
+
+    class TqdmBatchCompletionCallback(old_callback):
+        def __call__(self, *args, **kwargs):
+            progress_bar.update(n=self.batch_size)
+            return super().__call__(*args, **kwargs)
+
+    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
+    try:
+        yield progress_bar
+    finally:
+        joblib.parallel.BatchCompletionCallBack = old_callback
+        progress_bar.close()
+
+
+def _fit_grid_search_with_progress(
+    grid_search: GridSearchCV,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    *,
+    sample_weight: np.ndarray,
+    description: str,
+) -> None:
+    """Fit:ar GridSearchCV och visar progress för varje CV-fit."""
+    total_fits = len(ParameterGrid(grid_search.param_grid)) * grid_search.cv
+    progress_bar = tqdm(
+        total=total_fits,
+        desc=description,
+        unit="fit",
+        leave=False,
+    )
+    with _tqdm_joblib(progress_bar):
+        grid_search.fit(X_train, y_train, sample_weight=sample_weight)
 
 
 def _print_feature_columns(title: str, columns: list[str]) -> None:
@@ -384,19 +926,32 @@ def _evaluate_model(
     }
 
 
-def _strip_xgboost_features(training_data: dict) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
-    """Väljer dummy-kategorier och sp_attack för stripped XGBoost."""
+def _strip_xgboost_features(
+    training_data: dict,
+    include_image_features: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
+    """Väljer stripped tabellfeatures och eventuella image_pca-features."""
+    if include_image_features:
+        all_feature_columns = training_data["with_images_feature_columns"]
+        X_train = training_data["X_train_with_images"]
+        X_test = training_data["X_test_with_images"]
+    else:
+        all_feature_columns = training_data["feature_columns"]
+        X_train = training_data["X_train_original"]
+        X_test = training_data["X_test_original"]
+
     feature_columns = [
         column
-        for column in training_data["feature_columns"]
+        for column in all_feature_columns
         if column in STRIPPED_NUMERIC_FEATURES
         or column.startswith(STRIPPED_FEATURE_PREFIXES)
+        or (include_image_features and column.startswith("image_pca_"))
     ]
     if not feature_columns:
         raise ValueError("Hittade inga stripped features för XGBoost.")
     return (
-        training_data["X_train_original"][feature_columns],
-        training_data["X_test_original"][feature_columns],
+        X_train[feature_columns],
+        X_test[feature_columns],
         feature_columns,
     )
 
@@ -447,14 +1002,14 @@ def _save_confusion_matrix_plot(
     plt.close(fig)
 
 
-def _save_xgboost_feature_importance(
-    model: XGBClassifier,
+def _save_feature_importance(
+    model: XGBClassifier | RandomForestClassifier,
     feature_columns: list[str],
     output_dir: Path,
     run_label: str,
     model_name: str,
 ) -> dict:
-    """Sparar XGBoost feature importance som PNG."""
+    """Sparar modellens feature importance som PNG."""
     importance = pd.DataFrame(
         {
             "feature": feature_columns,
@@ -488,7 +1043,7 @@ def _save_xgboost_feature_importance(
 
 
 def _save_permutation_importance(
-    model: XGBClassifier,
+    model: XGBClassifier | RandomForestClassifier,
     X_test: pd.DataFrame,
     y_test: pd.Series,
     output_dir: Path,
@@ -541,6 +1096,8 @@ def _save_permutation_importance(
 
 def _feature_group(feature: str) -> str:
     """Grupperar dummy-features tillbaka till sin ursprungliga kolumn."""
+    if feature.startswith("image_pca_"):
+        return "image_pca"
     for source_column in DUMMY_SOURCE_COLUMNS:
         if feature.startswith(f"{source_column}_"):
             return source_column

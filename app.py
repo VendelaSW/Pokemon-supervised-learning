@@ -2,17 +2,18 @@
 Huvudflöde — Pokémon supervised learning
 ========================================
 Kör projektets pipeline från rå CSV till rensad referensdata,
-EDA, träningsmatris, PCA och modellträning.
+EDA, bildfeatures, träningsmatris, PCA och modellträning.
 
 Flödet håller isär df_raw, df_reference och df_training så att
 modellfeatures kan ändras utan att referensdata förloras.
 """
 
-from settings import DATA_PATH
+from settings import DATA_PATH, IMAGE_DIR
 
 from data_clean import build_training_dataframe, clean_data
 from eda import compare_eda_results, print_dataframe_overview, run_eda
 from load_data import load_data
+from load_images import load_images
 from prepare_training_data import prepare_training_data
 from train_models import train_models
 
@@ -43,9 +44,22 @@ print(
     "3. training features -> stripped features "
     "(color, shape, habitat, growth_rate, sp_attack) -> XGBoost med GridSearchCV"
 )
+print("4. training features + image_pca -> PCA -> logreg")
+print("5. training features + image_pca -> XGBoost med GridSearchCV")
+print(
+    "6. stripped training features + image_pca "
+    "-> XGBoost med GridSearchCV"
+)
+print("7. training features -> RandomForest")
+print("8. training features + image_pca -> RandomForest")
 
-# ── 4. Bygg träningsdata, kör PCA och träna modell ────────────
+# ── 4. Ladda bildfeatures, kör PCA och träna modeller ─────────
 
+image_matrix, image_valid_mask = load_images(df_reference, IMAGE_DIR)
 df_training = build_training_dataframe(df_reference)
-training_data = prepare_training_data(df_training)
+training_data = prepare_training_data(
+    df_training,
+    image_matrix=image_matrix,
+    image_valid_mask=image_valid_mask,
+)
 model_results = train_models(training_data, run_label=RUN_LABEL)

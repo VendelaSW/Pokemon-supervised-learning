@@ -17,9 +17,12 @@ Bilderna förväntas ligga i  images/<pokedex_number>/*.png
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from PIL import Image
+from PIL import Image, ImageFile
 
 from settings import IMG_SIZE, CHANNELS
+
+# Vissa sprites har trasig PNG-metadata trots läsbar bilddata.
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 
 def load_images(df: pd.DataFrame, image_dir: Path) -> tuple[np.ndarray, np.ndarray]:
