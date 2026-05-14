@@ -4,13 +4,13 @@ Projektet bygger en supervised learning-pipeline för att förutsäga en Pokémo
 
 ## Projektbakgrund
 
-Neintindo har anlitat oss för att hjälpa till med utvecklingen av nästa generations Mockemon-spel. De är oroliga för att Mockemon-karaktärernas egenskaper inte tillräckligt tydligt speglar vilken typ av Mockemon de faktiskt tillhör.
+Neintindo har anlitat oss för att hjälpa till med utvecklingen av nästa generations Mockemon-spel. De vill undersöka om Mockemon-karaktärernas egenskaper tydligt speglar vilken typ de tillhör.
 
-De vill därför att vi undersöker om Mockemon-karaktärernas statistik och visuella design är tillräckligt tydliga och distinkta. Syftet är att se om spelare enkelt kan skilja de olika Mockemon-typerna från varandra och placera dem i rätt grupper.
+Uppdraget är därför att analysera om karaktärernas statistik och visuella design är tillräckligt distinkta för att deras typ ska kunna förutsägas med hjälp av supervised learning. Modellen används som en indikation på om det finns tydliga mönster som skiljer de olika Mockemon-typerna från varandra.
 
-Till vår hjälp har vi fått tillgång till detaljerad data om varje Mockemon. Datan innehåller bland annat information om deras egenskaper och fysiska attribut, såsom HP, Attack, Defense, Special Attack, Special Defense, Speed, Height, Weight och Shape.
+Till vår hjälp har vi fått tillgång till detaljerad data om varje Mockemon. Datan innehåller bland annat information om deras egenskaper och fysiska attribut, såsom HP, Attack, Defense, Special Attack, Special Defense, Speed, Height, Weight och Shape, samt sprite-bilder av karaktärerna.
 
-Denna information används för att analysera om Mockemon-karaktärernas statistik och visuella kännetecken har ett tydligt samband med deras respektive typer.
+Genom att kombinera tabellbaserade egenskaper med visuella bildfeatures undersöker vi om Mockemon-karaktärernas statistik och visuella kännetecken har ett tydligt samband med deras respektive typer.
 
 ## Flöde
 
