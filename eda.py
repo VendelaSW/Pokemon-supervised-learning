@@ -1,12 +1,12 @@
-from __future__ import annotations
-
 """
 Exploratory Data Analysis för Pokémon-datasetet.
 
 Modulen används före och efter datarensning för att visa hur datasetet
-förändras. Den sparar främst PNG-figurer eftersom de är enklast att använda
-i presentationen av datan.
+förändras. Den sparar främst PNG-figurer som kan jämföras mellan rådata
+och rensad referensdata.
 """
+
+from __future__ import annotations
 
 import os
 import re

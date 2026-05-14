@@ -4,10 +4,8 @@ Steg 1 — Datainsamling
 Läser in Pokémon-datasetet från en semikolonseparerad CSV-fil och
 validerar att filen existerar.
 
-Datasetet innehåller statistik, typ, färg, habitat och sprite-URL
-för ca 1 000 Pokémon (efter borttagning av megaevolveringar).
-Inget avancerat händer här — vi laddar filen, skriver ut en kort
-sammanfattning och returnerar en rå DataFrame.
+Datasetet innehåller statistik, typ, färg, habitat och sprite-URL.
+Modulen gör ingen rensning utan returnerar en rå DataFrame från disk.
 """
 
 from pathlib import Path
@@ -17,8 +15,7 @@ import pandas as pd
 def load_data(data_path: Path) -> pd.DataFrame:
     """Läser in CSV-filen och returnerar en rå DataFrame.
 
-    Om filen inte hittas listar vi alla CSV-filer i dataset-mappen
-    för att hjälpa användaren hitta rätt sökväg.
+    Om filen saknas listas CSV-filer i dataset-mappen som felsökningsstöd.
 
     Returnerar
     ----------
@@ -30,7 +27,7 @@ def load_data(data_path: Path) -> pd.DataFrame:
         print(csv_files)
         raise FileNotFoundError(f"Hittar inte filen: {data_path}")
 
-    # semikolonseparerad fil — vanligt i europeiska dataset
+    # Datasetet är semikolonseparerat.
     df = pd.read_csv(data_path, sep=";")
 
     print("Datasetet har laddats in korrekt.")

@@ -42,9 +42,9 @@ XGB_PARAM_GRID = {
 # gamma=0.0, learning_rate=0.1, max_depth=2, n_estimators=250,
 # reg_alpha=0.1, reg_lambda=1, subsample=0.5
 #
-# Nya värden i gridden ligger nära bästa resultatet för att finjustera modellen.
+# Aktuell grid söker nära bästa resultat för att finjustera modellen.
 #
-# Vi har testat, som gav sämre resultat:
+# Tidigare testade värden med sämre resultat:
 # n_estimators = 50, 100, 200, 300, 350
 # learning_rate = 0.05
 # max_depth = 2, 3, 4, 5, 10, 20, 30, 40

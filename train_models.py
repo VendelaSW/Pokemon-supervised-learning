@@ -62,7 +62,7 @@ def train_models(
     output_dir: str | Path = MODEL_OUTPUT_DIR,
     run_label: str = "pokemon_type_training",
 ) -> dict:
-    """Kör logreg på PCA, full XGBoost och stripped XGBoost."""
+    """Kör de tre modellflödena och sparar modeller samt PNG-figurer."""
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
 
@@ -319,7 +319,7 @@ def _balanced_sample_weight(y_train: pd.Series) -> np.ndarray:
 
 
 def _print_feature_columns(title: str, columns: list[str]) -> None:
-    """Printar hela feature-listan utan trunkering."""
+    """Skriver ut hela feature-listan utan trunkering."""
     print(f"\n{title}")
     print(f"Antal features: {len(columns)}")
     for index, column in enumerate(columns, start=1):
@@ -374,7 +374,7 @@ def _evaluate_model(
 
 
 def _strip_xgboost_features(training_data: dict) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
-    """Väljer stripped features: dummy-kategorier och sp_attack."""
+    """Väljer dummy-kategorier och sp_attack för stripped XGBoost."""
     feature_columns = [
         column
         for column in training_data["feature_columns"]
