@@ -1,3 +1,12 @@
+"""
+Konfiguration — Projektets gemensamma inställningar
+===================================================
+Samlar sökvägar, reproducerbarhetsparametrar och modellparametrar
+som används av pipeline-modulerna.
+
+Övriga moduler importerar normalt dessa värden via settings-paketet.
+"""
+
 from pathlib import Path
 
 # ── KONFIGURATION ─────────────────────────────────────────────

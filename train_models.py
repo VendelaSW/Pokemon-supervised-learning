@@ -1,3 +1,14 @@
+"""
+Modellträning — Logreg, XGBoost och utvärdering
+===============================================
+Tränar tre modellflöden på den förberedda träningsdatan:
+logistisk regression på PCA-features, XGBoost på fulla training
+features och XGBoost på stripped features.
+
+Modulen sparar tränade modeller som pkl och skapar fokuserade PNG-
+figurer för jämförelse, confusion matrix och feature importance.
+"""
+
 from __future__ import annotations
 
 import os

@@ -1,5 +1,5 @@
 """
-Steg 1 — Datainsamling
+Datainsamling — Rå CSV
 ======================
 Läser in Pokémon-datasetet från en semikolonseparerad CSV-fil och
 validerar att filen existerar.

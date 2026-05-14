@@ -1,3 +1,13 @@
+"""
+Träningsförberedelse — Split, skalning och PCA
+==============================================
+Tar emot df_training och skapar de matriser som används av modellerna.
+
+Funktionen gör en stratifierad train/test-split, skalar features och
+fit:ar PCA enbart på träningsdelen. Originalfeatures behålls parallellt
+för XGBoost, medan PCA-features används av logistisk regression.
+"""
+
 from __future__ import annotations
 
 import os

@@ -1,6 +1,6 @@
 """
-Steg 3 — Bildladdning
-=====================
+Bildladdning — Sprite-features
+==============================
 Läser in sprite-bilder från disk och gör dem till bildfeatures:
 
   sprite PNG → RGBA → RGB med svart bakgrund → IMG_SIZE × IMG_SIZE

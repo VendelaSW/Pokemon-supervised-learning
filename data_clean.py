@@ -1,3 +1,14 @@
+"""
+Datarensning — Referensdata och träningsdata
+============================================
+Rensar rå Pokémon-data till df_reference och bygger en separat
+df_training för modellering.
+
+Referensdatan behåller tolkningskolumner som namn, typer och
+extraherade textvärden. Träningsdatan behåller målkolumnen,
+numeriska features och dummy-kodade kategorier.
+"""
+
 from __future__ import annotations
 
 import pandas as pd

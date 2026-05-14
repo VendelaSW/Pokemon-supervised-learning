@@ -1,5 +1,7 @@
 """
-Exploratory Data Analysis för Pokémon-datasetet.
+EDA — Rådata och rensad referensdata
+====================================
+Kör explorativ dataanalys på Pokémon-datasetet före och efter rensning.
 
 Modulen används före och efter datarensning för att visa hur datasetet
 förändras. Den sparar främst PNG-figurer som kan jämföras mellan rådata

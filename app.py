@@ -1,3 +1,13 @@
+"""
+Huvudflöde — Pokémon supervised learning
+========================================
+Kör projektets pipeline från rå CSV till rensad referensdata,
+EDA, träningsmatris, PCA och modellträning.
+
+Flödet håller isär df_raw, df_reference och df_training så att
+modellfeatures kan ändras utan att referensdata förloras.
+"""
+
 from settings import DATA_PATH
 
 from data_clean import build_training_dataframe, clean_data

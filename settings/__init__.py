@@ -1,5 +1,9 @@
-# Återexporterar alla konstanter så att övriga moduler kan skriva:
-#     from settings import TEST_RATIO, RANDOM_STATE, ...
+"""
+Settings-paket — Re-export av gemensamma konstanter
+===================================================
+Gör projektets konstanter tillgängliga via korta importer som
+from settings import TEST_RATIO, RANDOM_STATE.
+"""
 
 from .settings import (
     DATA_PATH,
